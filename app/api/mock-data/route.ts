@@ -11,6 +11,20 @@ interface WebviewMessage {
   [key: string]: unknown;
 }
 
+async function getNetworkMessages(): Promise<WebviewMessage[] | null> {
+  const hubUrl = process.env.PIXEL_AGENTS_HUB_URL;
+  if (!hubUrl) return null;
+
+  try {
+    const response = await fetch(`${hubUrl.replace(/\/$/, '')}/messages`, { cache: 'no-store' });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return Array.isArray(data.messages) ? data.messages : null;
+  } catch {
+    return null;
+  }
+}
+
 function getOpencodeSessions(): Array<{ id: string; title: string; directory: string; time_updated: number; provider: string }> {
   const sessions = [];
   const dbPath = path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
@@ -96,6 +110,10 @@ function providerLabel(provider: string) {
   return provider === 'claude-code' ? 'claude' : provider;
 }
 
+function getLocalOwnerName() {
+  return process.env.PIXEL_AGENTS_MACHINE_NAME || os.hostname();
+}
+
 function getRunningProcessCount(processName: string) {
   try {
     const output = execSync('ps -axo comm=', {
@@ -137,6 +155,11 @@ function loadDecodedAssets() {
 }
 
 export async function GET() {
+  const networkMessages = await getNetworkMessages();
+  if (networkMessages) {
+    return NextResponse.json({ messages: networkMessages });
+  }
+
   const messages: WebviewMessage[] = [];
 
   // Note: character/floor/wall/furniture assets are loaded by browserMock from local PNGs
@@ -170,7 +193,8 @@ export async function GET() {
   const allSessions = [...opencodeSessions, ...claudeSessions];
 
   for (const session of allSessions) {
-    const folderName = `${providerLabel(session.provider)} · ${session.provider === 'claude-code' ? session.title : path.basename(session.directory)}`;
+    const projectName = session.provider === 'claude-code' ? session.title : path.basename(session.directory);
+    const folderName = `${getLocalOwnerName()} · ${providerLabel(session.provider)} · ${projectName}`;
 
     messages.push({
       type: 'agentCreated',

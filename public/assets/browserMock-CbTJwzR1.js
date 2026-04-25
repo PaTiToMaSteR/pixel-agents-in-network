@@ -52,21 +52,24 @@ export async function dispatchMockMessages() {
     },
   ];
 
-  let agentMessages = [];
+  const loadAgentMessages = async () => {
+    try {
+      const data = await getJson('/api/mock-data');
+      return Array.isArray(data.messages) ? data.messages : [];
+    } catch (err) {
+      console.error('[BrowserMock] Failed to load agent data:', err);
+      return [];
+    }
+  };
 
-  try {
-    const data = await getJson('/api/mock-data');
-    if (Array.isArray(data.messages)) agentMessages = data.messages;
-  } catch (err) {
-    console.error('[BrowserMock] Failed to load agent data:', err);
-  }
-
-  const sendAll = () => {
+  const sendAll = async () => {
+    const agentMessages = await loadAgentMessages();
     [...baseMessages, ...agentMessages].forEach(dispatch);
     window.parent.postMessage({ type: 'layoutReady' }, '*');
   };
 
   [0, 100, 500, 1000, 2000].forEach((delay) => setTimeout(sendAll, delay));
+  setInterval(sendAll, 3000);
 
   console.log('[BrowserMock] Messages dispatched');
 }
