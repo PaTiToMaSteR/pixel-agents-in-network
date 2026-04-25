@@ -60,6 +60,7 @@ It specifically uses the original Pixel Agents extension assets and webview runt
 - Claude Code session discovery from `~/.claude/projects` JSONL session files.
 - Active process detection for `opencode` and `claude` so only currently running agents are shown.
 - Provider labels that distinguish OpenCode and Claude Code agents in the pixel room.
+- Always-visible labels show owner/status on the first line with OpenCode or Claude SVG icons from SVGL, and project name on the second line.
 - Live tool-state mapping for OpenCode sessions, including active or pending tool calls.
 - Browser mock loader that dispatches Pixel Agents webview messages without requiring VS Code APIs.
 - Bundled decoded assets for characters, floors, walls, furniture, furniture catalog, and default room layout.
