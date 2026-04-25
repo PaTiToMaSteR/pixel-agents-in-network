@@ -61,9 +61,11 @@ It specifically uses the original Pixel Agents extension assets and webview runt
 - Active process detection for `opencode` and `claude` so only currently running agents are shown.
 - Provider labels that distinguish OpenCode and Claude Code agents in the pixel room.
 - Always-visible labels show owner/status on the first line with OpenCode or Claude SVG icons from SVGL, and project name on the second line.
+- Compact labels are enabled by default and can be toggled from the in-room `Compact labels` setting.
 - Live tool-state mapping for OpenCode sessions, including active or pending tool calls.
 - Browser mock loader that dispatches Pixel Agents webview messages without requiring VS Code APIs.
 - Bundled decoded assets for characters, floors, walls, furniture, furniture catalog, and default room layout.
+- The default office layout is duplicated into a wider shared workspace and fit to the centered viewport on first load.
 - Always-on labels, sound-enabled defaults, and extension-version metadata for the standalone runtime.
 - Simple connection status overlay showing that the web shell is connected.
 

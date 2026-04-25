@@ -6,6 +6,57 @@ async function getJson(path) {
   return res.json();
 }
 
+function duplicateOfficeLayout(layout) {
+  if (!layout || layout.version !== 1 || !Array.isArray(layout.tiles)) return layout;
+
+  const copies = 2;
+  const gapCols = 2;
+  const cols = layout.cols * copies + gapCols * (copies - 1);
+  const rows = layout.rows;
+  const tiles = [];
+  const tileColors = [];
+  const sourceColors = Array.isArray(layout.tileColors)
+    ? layout.tileColors
+    : Array.from({ length: layout.tiles.length }, () => null);
+
+  for (let row = 0; row < rows; row += 1) {
+    const tileRow = layout.tiles.slice(row * layout.cols, (row + 1) * layout.cols);
+    const colorRow = sourceColors.slice(row * layout.cols, (row + 1) * layout.cols);
+
+    for (let copy = 0; copy < copies; copy += 1) {
+      tiles.push(...tileRow);
+      tileColors.push(...colorRow);
+
+      if (copy < copies - 1) {
+        tiles.push(...Array.from({ length: gapCols }, () => 255));
+        tileColors.push(...Array.from({ length: gapCols }, () => null));
+      }
+    }
+  }
+
+  const furniture = [];
+  for (let copy = 0; copy < copies; copy += 1) {
+    const colOffset = copy * (layout.cols + gapCols);
+    for (const item of layout.furniture || []) {
+      furniture.push({
+        ...item,
+        uid: copy === 0 ? item.uid : `${item.uid}-copy-${copy}`,
+        col: item.col + colOffset,
+      });
+    }
+  }
+
+  return {
+    ...layout,
+    cols,
+    rows,
+    layoutRevision: (layout.layoutRevision || 1) + 1,
+    tiles,
+    tileColors,
+    furniture,
+  };
+}
+
 export async function initBrowserMock() {
   console.log('[BrowserMock] Loading standalone assets...');
   const [characters, floorSprites, wallSets, furnitureSprites, furnitureCatalog, assetIndex] =
@@ -22,7 +73,7 @@ export async function initBrowserMock() {
     ? await getJson(`./assets/${assetIndex.defaultLayout}`)
     : null;
 
-  payload = { characters, floorSprites, wallSets, furnitureSprites, furnitureCatalog, layout };
+  payload = { characters, floorSprites, wallSets, furnitureSprites, furnitureCatalog, layout: duplicateOfficeLayout(layout) };
   console.log(
     `[BrowserMock] Ready: ${characters.length} chars, ${floorSprites.length} floors, ${wallSets.length} wall sets, ${furnitureCatalog.length} furniture items`,
   );
