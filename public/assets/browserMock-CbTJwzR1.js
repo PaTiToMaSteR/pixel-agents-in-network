@@ -1,6 +1,7 @@
 let payload = null;
 const knownAgentIds = new Set();
 const knownAgentTools = new Map();
+const knownAgentStatuses = new Map();
 
 async function getJson(path) {
   const res = await fetch(path);
@@ -100,6 +101,11 @@ export async function dispatchMockMessages() {
         normalized.push({ type: 'agentToolsClear', id: message.id });
       }
 
+      if (message.type === 'agentStatus') {
+        if (knownAgentStatuses.get(message.id) === message.status) continue;
+        knownAgentStatuses.set(message.id, message.status);
+      }
+
       normalized.push(message);
     }
 
@@ -107,6 +113,7 @@ export async function dispatchMockMessages() {
       if (!currentAgentIds.has(id)) {
         knownAgentIds.delete(id);
         knownAgentTools.delete(id);
+        knownAgentStatuses.delete(id);
         normalized.push({ type: 'agentClosed', id });
       }
     }

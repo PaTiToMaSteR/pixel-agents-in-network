@@ -82,6 +82,7 @@ It specifically uses the original Pixel Agents extension assets and webview runt
 - Layout saves carry a per-browser origin ID for traceability, but saved layouts are not auto-applied back over local state.
 - Edit mode has a visible `Load` button next to `Save` for restoring the latest shared saved layout.
 - Edit mode has separate `Erase floor` and `Erase furniture` buttons so removing furniture does not accidentally delete floor tiles.
+- Idle agents walk to the kitchen/coffee area instead of sitting at their workstation forever, and active agents return to their desks.
 - Always-on labels, sound-enabled defaults, and extension-version metadata for the standalone runtime.
 - Simple connection status overlay showing that the web shell is connected.
 
