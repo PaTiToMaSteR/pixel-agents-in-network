@@ -26,6 +26,12 @@ Already cloned:
 npm run dev
 ```
 
+Already cloned, update first, then run with your name:
+
+```bash
+git pull && npm run dev -- --name "Your Name"
+```
+
 Broadcast/network mode is the default for `npm run dev` and `npm start`. `npm run dev` uses Next.js dev mode with hot reload; `npm start` builds and runs production mode. Both find an existing Pixel Agents hub on the LAN, join it if one exists, or start a new hub if none exists. Then they broadcast this machine's OpenCode and Claude Code agents and open the room in your browser.
 
 No IP address is required for normal LAN use. Every computer can run the same command.

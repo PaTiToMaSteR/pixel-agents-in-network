@@ -36,7 +36,7 @@
       "name": "Pixel Agents: Web Dev Only",
       "type": "node-terminal",
       "request": "launch",
-      "command": "npm run dev:web",
+      "command": "PIXEL_AGENTS_MACHINE_NAME=\"${input:agentName}\" npm run dev:web",
       "cwd": "${workspaceFolder}",
       "preLaunchTask": "Kill Web Port 4555"
     },
@@ -51,7 +51,7 @@
       "name": "Pixel Agents: Web Start Only",
       "type": "node-terminal",
       "request": "launch",
-      "command": "npm run start:web",
+      "command": "PIXEL_AGENTS_MACHINE_NAME=\"${input:agentName}\" npm run start:web",
       "cwd": "${workspaceFolder}",
       "preLaunchTask": "Kill Web Port 4555"
     }

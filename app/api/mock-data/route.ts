@@ -98,7 +98,7 @@ function parseOpencodeExport(sessionId: string) {
   try {
     const output = execSync(`opencode export --json ${sessionId} 2>/dev/null || echo '{}'`, {
       encoding: 'utf8',
-      timeout: 5000,
+      timeout: 1000,
     });
     return JSON.parse(output);
   } catch {
@@ -111,7 +111,14 @@ function providerLabel(provider: string) {
 }
 
 function getLocalOwnerName() {
-  return process.env.PIXEL_AGENTS_MACHINE_NAME || os.hostname();
+  if (process.env.PIXEL_AGENTS_MACHINE_NAME) return process.env.PIXEL_AGENTS_MACHINE_NAME;
+
+  try {
+    const gitName = execSync('git config user.name', { encoding: 'utf8', timeout: 1000 }).trim();
+    if (gitName) return gitName;
+  } catch {}
+
+  return os.hostname();
 }
 
 function getRunningProcessCount(processName: string) {

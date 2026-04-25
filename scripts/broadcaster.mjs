@@ -4,13 +4,22 @@ import os from 'node:os';
 import path from 'node:path';
 
 const hubUrl = normalizeHubUrl(process.env.PIXEL_AGENTS_HUB_URL || process.argv[2] || 'http://127.0.0.1:8787');
-const machineName = process.env.PIXEL_AGENTS_MACHINE_NAME || os.hostname();
+const machineName = process.env.PIXEL_AGENTS_MACHINE_NAME || defaultOwnerName();
 const machineId = `${os.hostname()}-${machineName}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 const intervalMs = Number(process.env.PIXEL_AGENTS_BROADCAST_INTERVAL_MS || 2000);
 
 function normalizeHubUrl(value) {
   if (value.startsWith('http://') || value.startsWith('https://')) return value.replace(/\/$/, '');
   return `http://${value.replace(/\/$/, '')}:8787`;
+}
+
+function defaultOwnerName() {
+  try {
+    const gitName = execSync('git config user.name', { encoding: 'utf8', timeout: 1000 }).trim();
+    if (gitName) return gitName;
+  } catch {}
+
+  return os.hostname();
 }
 
 function getRunningProcessCount(processName) {
@@ -84,7 +93,7 @@ function getClaudeCodeSessions() {
 
 function parseOpencodeExport(sessionId) {
   try {
-    const output = execSync(`opencode export --json ${sessionId} 2>/dev/null || echo '{}'`, { encoding: 'utf8', timeout: 5000 });
+    const output = execSync(`opencode export --json ${sessionId} 2>/dev/null || echo '{}'`, { encoding: 'utf8', timeout: 1000 });
     return JSON.parse(output);
   } catch {
     return null;

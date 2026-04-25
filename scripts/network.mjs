@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import dgram from 'node:dgram';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,7 +11,7 @@ const hubPort = Number(args['hub-port'] || 8787);
 const discoveryPort = Number(args['discovery-port'] || 47877);
 const discoveryGroup = args['discovery-group'] || '239.255.42.99';
 const lanIp = args.ip || getLanIp() || '127.0.0.1';
-const machineName = args.name || os.hostname();
+const machineName = args.name || defaultOwnerName();
 const explicitHub = args.hub || args['hub-url'];
 const discoveredHub = explicitHub ? null : await discoverHub();
 const joinedRemoteHub = Boolean(explicitHub || discoveredHub);
@@ -48,6 +48,15 @@ function getLanIp() {
     }
   }
   return null;
+}
+
+function defaultOwnerName() {
+  try {
+    const gitName = execSync('git config user.name', { encoding: 'utf8', timeout: 1000 }).trim();
+    if (gitName) return gitName;
+  } catch {}
+
+  return os.hostname();
 }
 
 function discoverHub(timeoutMs = 1800) {

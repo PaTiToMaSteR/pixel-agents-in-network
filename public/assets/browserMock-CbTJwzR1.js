@@ -2,6 +2,7 @@ let payload = null;
 const knownAgentIds = new Set();
 const knownAgentTools = new Map();
 const knownAgentStatuses = new Map();
+let agentLoadErrorLogged = false;
 
 async function getJson(path) {
   const res = await fetch(path);
@@ -60,10 +61,14 @@ export async function dispatchMockMessages() {
   const loadAgentMessages = async () => {
     try {
       const data = await getJson('/api/mock-data');
+      agentLoadErrorLogged = false;
       return Array.isArray(data.messages) ? data.messages : [];
     } catch (err) {
-      console.error('[BrowserMock] Failed to load agent data:', err);
-      return [];
+      if (!agentLoadErrorLogged) {
+        console.warn('[BrowserMock] Agent data temporarily unavailable; keeping current agents.', err);
+        agentLoadErrorLogged = true;
+      }
+      return null;
     }
   };
 
@@ -123,12 +128,13 @@ export async function dispatchMockMessages() {
 
   const sendInitial = async () => {
     const agentMessages = await loadAgentMessages();
-    [...assetMessages, ...normalizeAgentMessages(agentMessages)].forEach(dispatch);
+    [...assetMessages, ...normalizeAgentMessages(agentMessages || [])].forEach(dispatch);
     window.parent.postMessage({ type: 'layoutReady' }, '*');
   };
 
   const sendAgentUpdates = async () => {
     const agentMessages = await loadAgentMessages();
+    if (!agentMessages) return;
     normalizeAgentMessages(agentMessages).forEach(dispatch);
   };
 
