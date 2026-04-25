@@ -1,0 +1,27 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Kill Pixel Agents Ports",
+      "type": "shell",
+      "command": "(lsof -tiTCP:4555 -sTCP:LISTEN; lsof -tiTCP:8787 -sTCP:LISTEN; lsof -tiUDP:47877) 2>/dev/null | sort -u | xargs kill -9 2>/dev/null || true",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Kill Web Port 4555",
+      "type": "shell",
+      "command": "lsof -tiTCP:4555 -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated",
+        "clear": true
+      }
+    }
+  ]
+}

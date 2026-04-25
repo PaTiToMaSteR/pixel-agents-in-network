@@ -9,7 +9,7 @@ Fresh download with your name on the agent labels:
 ```bash
 git clone https://github.com/PaTiToMaSteR/pixel-agents-in-network.git \
   && cd pixel-agents-in-network \
-  && npm run network -- --name "Your Name"
+  && npm run dev -- --name "Your Name"
 ```
 
 Fresh download without a custom name:
@@ -17,23 +17,23 @@ Fresh download without a custom name:
 ```bash
 git clone https://github.com/PaTiToMaSteR/pixel-agents-in-network.git \
   && cd pixel-agents-in-network \
-  && npm run network
+  && npm run dev
 ```
 
 Already cloned:
 
 ```bash
-npm run network
+npm run dev
 ```
 
-It installs dependencies if needed, builds the app, finds an existing Pixel Agents hub on the LAN, joins it if one exists, or starts a new hub if none exists. Then it broadcasts this machine's OpenCode and Claude Code agents and opens the room in your browser.
+Broadcast/network mode is the default for `npm run dev` and `npm start`. `npm run dev` uses Next.js dev mode with hot reload; `npm start` builds and runs production mode. Both find an existing Pixel Agents hub on the LAN, join it if one exists, or start a new hub if none exists. Then they broadcast this machine's OpenCode and Claude Code agents and open the room in your browser.
 
 No IP address is required for normal LAN use. Every computer can run the same command.
 
 Optional flags:
 
 ```bash
-npm run network -- --name "Patito" --port 3333 --hub-port 8787
+npm run dev -- --name "Patito" --port 4555 --hub-port 8787
 ```
 
 The `--name` value is shown in every agent label, for example `Patito · opencode · Vibrez`, so you can tell who owns each agent in the shared room.
@@ -41,10 +41,21 @@ The `--name` value is shown in every agent label, for example `Patito · opencod
 If multicast discovery is blocked by your network, you can still join manually:
 
 ```bash
-npm run network -- --hub 192.168.1.20
+npm run dev -- --hub 192.168.1.20
 ```
 
 The command prints both the local browser URL and the LAN URL. Keep the terminal open while broadcasting.
+
+## VS Code Launch
+
+The repo includes VS Code launch configs in `.vscode/launch.json`:
+
+- `Pixel Agents: Broadcast Dev (Hot Reload)` runs `npm run dev -- --name "..."` on port `4555`.
+- `Pixel Agents: Broadcast Dev (Custom Hub)` joins a specific hub when multicast discovery is blocked.
+- `Pixel Agents: Broadcast Production` runs the production network command.
+- `Pixel Agents: Web Dev Only` and `Pixel Agents: Web Start Only` run the plain Next.js app without broadcasting.
+
+The pre-launch tasks in `.vscode/tasks.json` kill stale listeners on ports `4555`, `8787`, and UDP `47877` so old hub or app processes do not keep serving stale code.
 
 ## Original Source
 
@@ -65,9 +76,22 @@ It specifically uses the original Pixel Agents extension assets and webview runt
 - Live tool-state mapping for OpenCode sessions, including active or pending tool calls.
 - Browser mock loader that dispatches Pixel Agents webview messages without requiring VS Code APIs.
 - Bundled decoded assets for characters, floors, walls, furniture, furniture catalog, and default room layout.
-- The default office layout is duplicated into a wider shared workspace and fit to the centered viewport on first load.
+- Extra desks, chairs, and computers in the original office layout so more agents have visible workstations.
+- A larger `32x22` default office map with 93 furniture items, saved as `public/assets/default-layout-1.json`.
+- Shared layout edits are saved through the local hub and loaded by other browsers without resetting active edits every few seconds.
+- Layout saves carry a per-browser origin ID, so the browser that saved a layout does not re-apply its own broadcast copy over local state.
+- Edit mode has a visible `Load` button next to `Save` for restoring the latest shared saved layout.
+- Edit mode has separate `Erase floor` and `Erase furniture` buttons so removing furniture does not accidentally delete floor tiles.
 - Always-on labels, sound-enabled defaults, and extension-version metadata for the standalone runtime.
 - Simple connection status overlay showing that the web shell is connected.
+
+## Shared Layouts
+
+Click `Layout`, edit the room, then click `Save`. The browser posts the layout to `/api/layout`; when network mode is running, that API forwards the save to the LAN hub.
+
+Other browsers poll the hub and apply newer saved layouts. The browser that made the save ignores its own broadcast update after initial load because it already has that local state. This avoids the visible glitch where an old layout snapshot can overwrite a fresh edit.
+
+Use the `Load` button next to `Save` when you explicitly want to pull the latest shared layout into the current browser.
 
 ## Development
 
@@ -76,14 +100,18 @@ npm install
 npm run dev
 ```
 
-The dev server runs on port `3333` by default.
+The default dev command runs broadcast mode with hot reload on port `4555`. For plain Next.js dev without broadcasting, run `npm run dev:web`.
+
+If Next.js serves a stale `.next` cache in dev mode, the network launcher moves the cache aside before starting dev mode. If you still see stale page errors manually, stop the server, move `.next` aside, and restart.
 
 ## Build
 
 ```bash
 npm run build
-npm run start
+npm start
 ```
+
+For plain Next.js production serving without broadcasting, run `npm run start:web`.
 
 ## Notes
 

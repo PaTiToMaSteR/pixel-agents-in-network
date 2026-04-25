@@ -5,6 +5,74 @@ const providerIcons = {
 };
 
 const compactLabelsKey = 'pixel-agents.compact-labels';
+const layoutOriginKey = 'pixel-agents.layout-origin';
+
+function getLayoutOrigin() {
+  if (window.__pixelAgentsLayoutOrigin) return window.__pixelAgentsLayoutOrigin;
+
+  let origin = localStorage.getItem(layoutOriginKey);
+  if (!origin) {
+    origin = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(layoutOriginKey, origin);
+  }
+  window.__pixelAgentsLayoutOrigin = origin;
+  return origin;
+}
+
+function installLayoutSaveBridge() {
+  if (window.__pixelAgentsLayoutSaveBridgeInstalled) return;
+
+  window.__pixelAgentsLayoutSaveBridgeInstalled = true;
+  const originalLog = console.log.bind(console);
+  console.log = (...args) => {
+    const message = args[1];
+    if (args[0] === '[vscode.postMessage]' && message?.type === 'saveLayout' && message.layout) {
+      fetch('/api/layout', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ layout: message.layout, origin: getLayoutOrigin() }),
+      }).catch((error) => originalLog('[Pixel Agents] Failed to save shared layout', error));
+    }
+    originalLog(...args);
+  };
+}
+
+async function loadSharedLayout() {
+  try {
+    const response = await fetch('/api/layout', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (!data.layout) {
+      alert('No saved layout found yet. Click Save after editing a layout first.');
+      return;
+    }
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'layoutLoaded', layout: data.layout, force: true },
+    }));
+  } catch (error) {
+    alert(`Failed to load layout: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function installLoadLayoutButton() {
+  const saveButton = [...document.querySelectorAll('button')]
+    .find((button) => button.textContent?.trim() === 'Save' && button.title === 'Save layout');
+  if (!saveButton || document.querySelector('.pixel-agents-load-layout-button')) return;
+
+  const loadButton = document.createElement('button');
+  loadButton.className = `${saveButton.className} pixel-agents-load-layout-button`;
+  loadButton.type = 'button';
+  loadButton.title = 'Load saved shared layout';
+  loadButton.textContent = 'Load';
+  loadButton.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    loadSharedLayout();
+  });
+
+  saveButton.insertAdjacentElement('afterend', loadButton);
+}
 
 function compactLabelsEnabled() {
   return localStorage.getItem(compactLabelsKey) !== 'false';
@@ -12,7 +80,7 @@ function compactLabelsEnabled() {
 
 function setCompactLabelsEnabled(enabled) {
   localStorage.setItem(compactLabelsKey, enabled ? 'true' : 'false');
-  enhanceLabels();
+  scheduleEnhanceLabels();
 }
 
 function installStyles() {
@@ -30,19 +98,19 @@ function installStyles() {
     }
 
     .pixel-agents-compact-label img {
-      width: 12px !important;
-      height: 12px !important;
+      width: 14px !important;
+      height: 14px !important;
     }
 
     .pixel-agents-compact-label .pixel-agents-owner-status {
-      font-size: 13px !important;
-      line-height: 1.05 !important;
+      font-size: 15px !important;
+      line-height: 1.1 !important;
       max-width: 150px !important;
     }
 
     .pixel-agents-compact-label .pixel-agents-project-name {
-      font-size: 10px !important;
-      line-height: 1.05 !important;
+      font-size: 12px !important;
+      line-height: 1.1 !important;
       max-width: 150px !important;
       opacity: 0.9 !important;
     }
@@ -90,25 +158,14 @@ function installSettingsControl() {
   document.body.appendChild(label);
 }
 
-function fitRoomOnFirstLoad() {
-  if (window.__pixelAgentsFitRoomDone) return;
+function installDesktopContextMenuFix() {
+  const isDesktopPointer = matchMedia('(hover: hover) and (pointer: fine)').matches;
+  if (!isDesktopPointer || window.__pixelAgentsContextMenuFixInstalled) return;
 
-  const canvas = document.querySelector('canvas');
-  if (!canvas) return;
-
-  window.__pixelAgentsFitRoomDone = true;
-  requestAnimationFrame(() => {
-    for (let index = 0; index < 8; index += 1) {
-      canvas.dispatchEvent(new WheelEvent('wheel', {
-        bubbles: true,
-        cancelable: true,
-        ctrlKey: true,
-        deltaY: 60,
-        clientX: window.innerWidth / 2,
-        clientY: window.innerHeight / 2,
-      }));
-    }
-  });
+  window.__pixelAgentsContextMenuFixInstalled = true;
+  window.addEventListener('contextmenu', (event) => {
+    event.stopImmediatePropagation();
+  }, true);
 }
 
 function parseAgentLabel(value) {
@@ -147,6 +204,14 @@ function enhancePanel(panel) {
   const status = normalizeStatus(parsed.ownerName, statusSpan.textContent || 'Idle');
   const iconSrc = providerIcons[parsed.provider.toLowerCase()];
   const compact = compactLabelsEnabled();
+  const desiredStatus = `${parsed.ownerName} · ${status}`;
+  const currentIcon = statusSpan.querySelector('.pixel-agents-provider-icon');
+  const iconMatches = !iconSrc || currentIcon?.getAttribute('src') === iconSrc;
+  const textMatches = statusSpan.textContent === desiredStatus;
+  const projectMatches = projectSpan.textContent === parsed.projectName;
+  const compactMatches = panel.classList.contains('pixel-agents-compact-label') === compact;
+
+  if (iconMatches && textMatches && projectMatches && compactMatches) return;
 
   panel.classList.toggle('pixel-agents-compact-label', compact);
 
@@ -159,6 +224,7 @@ function enhancePanel(panel) {
 
   if (iconSrc) {
     const icon = document.createElement('img');
+    icon.className = 'pixel-agents-provider-icon';
     icon.src = iconSrc;
     icon.alt = `${parsed.provider} logo`;
     icon.width = 14;
@@ -175,21 +241,36 @@ function enhancePanel(panel) {
 }
 
 function enhanceLabels() {
-  fitRoomOnFirstLoad();
+  installLoadLayoutButton();
   document.querySelectorAll('.pixel-panel').forEach(enhancePanel);
 }
 
-const observer = new MutationObserver(enhanceLabels);
+let enhanceQueued = false;
+
+function scheduleEnhanceLabels() {
+  if (enhanceQueued) return;
+  enhanceQueued = true;
+  requestAnimationFrame(() => {
+    enhanceQueued = false;
+    enhanceLabels();
+  });
+}
+
+const observer = new MutationObserver(scheduleEnhanceLabels);
 observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
     installStyles();
     installSettingsControl();
+    installDesktopContextMenuFix();
+    installLayoutSaveBridge();
     enhanceLabels();
   });
 } else {
   installStyles();
   installSettingsControl();
+  installDesktopContextMenuFix();
+  installLayoutSaveBridge();
   enhanceLabels();
 }

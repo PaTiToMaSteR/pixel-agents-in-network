@@ -5,7 +5,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 
 const args = parseArgs(process.argv.slice(2));
-const webPort = Number(args.port || args['web-port'] || 3333);
+const devMode = Boolean(args.dev);
+const webPort = Number(args.port || args['web-port'] || 4555);
 const hubPort = Number(args['hub-port'] || 8787);
 const discoveryPort = Number(args['discovery-port'] || 47877);
 const discoveryGroup = args['discovery-group'] || '239.255.42.99';
@@ -92,6 +93,21 @@ function runSyncStep(command, commandArgs, options = {}) {
   });
 }
 
+function moveStaleNextBuild() {
+  const nextDir = path.join(process.cwd(), '.next');
+  if (!fs.existsSync(nextDir)) return;
+
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  let staleDir = path.join(process.cwd(), `.next.stale-${stamp}`);
+  let suffix = 1;
+  while (fs.existsSync(staleDir)) {
+    staleDir = path.join(process.cwd(), `.next.stale-${stamp}-${suffix}`);
+    suffix += 1;
+  }
+  fs.renameSync(nextDir, staleDir);
+  console.log(`[network] moved stale .next to ${path.basename(staleDir)}`);
+}
+
 let shuttingDown = false;
 function shutdown(code = 0) {
   shuttingDown = true;
@@ -107,8 +123,12 @@ if (!fs.existsSync(path.join(process.cwd(), 'node_modules'))) {
   await runSyncStep('npm', ['install']);
 }
 
-console.log('[network] building web app');
-await runSyncStep('npm', ['run', 'build']);
+if (!devMode) {
+  console.log('[network] building web app');
+  await runSyncStep('npm', ['run', 'build']);
+} else {
+  moveStaleNextBuild();
+}
 
 if (!joinedRemoteHub) {
   run(process.execPath, ['scripts/hub.mjs'], {
@@ -129,7 +149,7 @@ run(process.execPath, ['scripts/broadcaster.mjs'], {
   },
 });
 
-run('npx', ['next', 'start', '-p', String(webPort)], {
+run('npx', ['next', devMode ? 'dev' : 'start', '-p', String(webPort)], {
   env: {
     ...process.env,
     PIXEL_AGENTS_HUB_URL: hubUrl,
@@ -146,6 +166,7 @@ console.log('');
 console.log(`[network] room: ${appUrl}`);
 console.log(`[network] LAN room: http://${lanIp}:${webPort}`);
 console.log(`[network] hub: ${publicHubUrl}`);
+console.log(`[network] web mode: ${devMode ? 'next dev with hot reload' : 'next start'}`);
 if (discoveredHub) {
   console.log(`[network] discovered existing LAN hub: ${discoveredHub}`);
 } else if (!joinedRemoteHub) {

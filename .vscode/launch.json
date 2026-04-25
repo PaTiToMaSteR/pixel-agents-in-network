@@ -1,0 +1,73 @@
+{
+  "version": "0.2.0",
+  "compounds": [
+    {
+      "name": "Pixel Agents: Broadcast + Browser",
+      "configurations": ["Pixel Agents: Broadcast Dev (Hot Reload)"],
+      "stopAll": true
+    }
+  ],
+  "configurations": [
+    {
+      "name": "Pixel Agents: Broadcast Dev (Hot Reload)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev -- --name \"${input:agentName}\"",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Kill Pixel Agents Ports"
+    },
+    {
+      "name": "Pixel Agents: Broadcast Dev (Custom Hub)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev -- --name \"${input:agentName}\" --hub \"${input:hubUrl}\"",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Kill Pixel Agents Ports"
+    },
+    {
+      "name": "Pixel Agents: Broadcast Production",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm start -- --name \"${input:agentName}\"",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Kill Pixel Agents Ports"
+    },
+    {
+      "name": "Pixel Agents: Web Dev Only",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev:web",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Kill Web Port 4555"
+    },
+    {
+      "name": "Pixel Agents: Build",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run build",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Pixel Agents: Web Start Only",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run start:web",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Kill Web Port 4555"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "agentName",
+      "type": "promptString",
+      "description": "Name to show in Pixel Agents labels",
+      "default": "Your Name"
+    },
+    {
+      "id": "hubUrl",
+      "type": "promptString",
+      "description": "Hub IP or URL, only needed when LAN discovery is blocked",
+      "default": "127.0.0.1"
+    }
+  ]
+}

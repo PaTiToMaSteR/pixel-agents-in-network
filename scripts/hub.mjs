@@ -7,6 +7,9 @@ const ttlMs = Number(process.env.PIXEL_AGENTS_TTL_MS || 15000);
 const discoveryPort = Number(process.env.PIXEL_AGENTS_DISCOVERY_PORT || 47877);
 const discoveryGroup = process.env.PIXEL_AGENTS_DISCOVERY_GROUP || '239.255.42.99';
 const machines = new Map();
+let sharedLayout = null;
+let sharedLayoutUpdatedAt = 0;
+let sharedLayoutOrigin = null;
 
 function getLanIp() {
   for (const addresses of Object.values(os.networkInterfaces())) {
@@ -102,6 +105,28 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && req.url === '/messages') {
     sendJson(res, 200, { messages: toMessages() });
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/layout') {
+    sendJson(res, 200, { layout: sharedLayout, updatedAt: sharedLayoutUpdatedAt, origin: sharedLayoutOrigin });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/layout') {
+    try {
+      const body = JSON.parse(await readBody(req));
+      if (!body.layout || body.layout.version !== 1) {
+        sendJson(res, 400, { error: 'Expected version 1 layout' });
+        return;
+      }
+      sharedLayout = body.layout;
+      sharedLayoutUpdatedAt = Date.now();
+      sharedLayoutOrigin = typeof body.origin === 'string' ? body.origin : null;
+      sendJson(res, 200, { ok: true, updatedAt: sharedLayoutUpdatedAt, origin: sharedLayoutOrigin });
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : 'Bad request' });
+    }
     return;
   }
 

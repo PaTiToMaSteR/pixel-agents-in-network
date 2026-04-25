@@ -134,61 +134,10 @@ function getDefaultLayout() {
   try {
     const defaultLayoutPath = path.join(os.homedir(), '.vscode', 'extensions', 'pablodelucca.pixel-agents-1.3.0', 'dist', 'webview', 'assets', 'default-layout-1.json');
     if (fs.existsSync(defaultLayoutPath)) {
-      return duplicateOfficeLayout(JSON.parse(fs.readFileSync(defaultLayoutPath, 'utf8')));
+      return JSON.parse(fs.readFileSync(defaultLayoutPath, 'utf8'));
     }
   } catch {}
   return null;
-}
-
-function duplicateOfficeLayout(layout: any) {
-  if (!layout || layout.version !== 1 || !Array.isArray(layout.tiles)) return layout;
-
-  const copies = 2;
-  const gapCols = 2;
-  const cols = layout.cols * copies + gapCols * (copies - 1);
-  const rows = layout.rows;
-  const tiles = [];
-  const tileColors = [];
-  const sourceColors = Array.isArray(layout.tileColors)
-    ? layout.tileColors
-    : Array.from({ length: layout.tiles.length }, () => null);
-
-  for (let row = 0; row < rows; row += 1) {
-    const tileRow = layout.tiles.slice(row * layout.cols, (row + 1) * layout.cols);
-    const colorRow = sourceColors.slice(row * layout.cols, (row + 1) * layout.cols);
-
-    for (let copy = 0; copy < copies; copy += 1) {
-      tiles.push(...tileRow);
-      tileColors.push(...colorRow);
-
-      if (copy < copies - 1) {
-        tiles.push(...Array.from({ length: gapCols }, () => 255));
-        tileColors.push(...Array.from({ length: gapCols }, () => null));
-      }
-    }
-  }
-
-  const furniture = [];
-  for (let copy = 0; copy < copies; copy += 1) {
-    const colOffset = copy * (layout.cols + gapCols);
-    for (const item of layout.furniture || []) {
-      furniture.push({
-        ...item,
-        uid: copy === 0 ? item.uid : `${item.uid}-copy-${copy}`,
-        col: item.col + colOffset,
-      });
-    }
-  }
-
-  return {
-    ...layout,
-    cols,
-    rows,
-    layoutRevision: (layout.layoutRevision || 1) + 1,
-    tiles,
-    tileColors,
-    furniture,
-  };
 }
 
 function loadDecodedAssets() {
