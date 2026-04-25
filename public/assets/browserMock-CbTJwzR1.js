@@ -1,20 +1,6 @@
 let payload = null;
-let lastLayoutUpdatedAt = 0;
 const knownAgentIds = new Set();
 const knownAgentTools = new Map();
-const layoutOriginKey = 'pixel-agents.layout-origin';
-
-function getLayoutOrigin() {
-  if (window.__pixelAgentsLayoutOrigin) return window.__pixelAgentsLayoutOrigin;
-
-  let origin = localStorage.getItem(layoutOriginKey);
-  if (!origin) {
-    origin = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-    localStorage.setItem(layoutOriginKey, origin);
-  }
-  window.__pixelAgentsLayoutOrigin = origin;
-  return origin;
-}
 
 async function getJson(path) {
   const res = await fetch(path);
@@ -48,21 +34,8 @@ export async function dispatchMockMessages() {
   if (!payload) return;
 
   const dispatch = (data) => window.dispatchEvent(new MessageEvent('message', { data }));
-  const loadSharedLayout = async ({ allowOwn = false } = {}) => {
-    try {
-      const res = await fetch('/api/layout', { cache: 'no-store' });
-      if (!res.ok) throw new Error(`Failed to load /api/layout: ${res.status}`);
-      const data = await res.json();
-      if (data.layout && data.updatedAt > lastLayoutUpdatedAt) {
-        lastLayoutUpdatedAt = data.updatedAt;
-        if (!allowOwn && data.origin && data.origin === getLayoutOrigin()) return null;
-        return data.layout;
-      }
-    } catch {}
-    return null;
-  };
 
-  const initialLayout = await loadSharedLayout({ allowOwn: true }) || payload.layout;
+  const initialLayout = payload.layout;
   const assetMessages = [
     { type: 'characterSpritesLoaded', characters: payload.characters },
     { type: 'floorTilesLoaded', sprites: payload.floorSprites },
@@ -152,15 +125,9 @@ export async function dispatchMockMessages() {
     normalizeAgentMessages(agentMessages).forEach(dispatch);
   };
 
-  const sendLayoutUpdates = async () => {
-    const layout = await loadSharedLayout();
-    if (layout) dispatch({ type: 'layoutLoaded', layout });
-  };
-
   setTimeout(sendInitial, 0);
   [100, 500, 1000, 2000].forEach((delay) => setTimeout(sendAgentUpdates, delay));
   setInterval(sendAgentUpdates, 3000);
-  setInterval(sendLayoutUpdates, 3000);
 
   console.log('[BrowserMock] Messages dispatched');
 }

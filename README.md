@@ -78,8 +78,8 @@ It specifically uses the original Pixel Agents extension assets and webview runt
 - Bundled decoded assets for characters, floors, walls, furniture, furniture catalog, and default room layout.
 - Extra desks, chairs, and computers in the original office layout so more agents have visible workstations.
 - A larger `32x22` default office map with 93 furniture items, saved as `public/assets/default-layout-1.json`.
-- Shared layout edits are saved through the local hub and loaded by other browsers without resetting active edits every few seconds.
-- Layout saves carry a per-browser origin ID, so the browser that saved a layout does not re-apply its own broadcast copy over local state.
+- Shared layout edits are saved through the local hub and can be loaded explicitly from other browsers without resetting active edits every few seconds.
+- Layout saves carry a per-browser origin ID for traceability, but saved layouts are not auto-applied back over local state.
 - Edit mode has a visible `Load` button next to `Save` for restoring the latest shared saved layout.
 - Edit mode has separate `Erase floor` and `Erase furniture` buttons so removing furniture does not accidentally delete floor tiles.
 - Always-on labels, sound-enabled defaults, and extension-version metadata for the standalone runtime.
@@ -89,7 +89,7 @@ It specifically uses the original Pixel Agents extension assets and webview runt
 
 Click `Layout`, edit the room, then click `Save`. The browser posts the layout to `/api/layout`; when network mode is running, that API forwards the save to the LAN hub.
 
-Other browsers poll the hub and apply newer saved layouts. The browser that made the save ignores its own broadcast update after initial load because it already has that local state. This avoids the visible glitch where an old layout snapshot can overwrite a fresh edit.
+Fresh launches always start from the committed default layout in `public/assets/default-layout-1.json`. Saved hub layouts are not applied automatically, because an old hub snapshot can otherwise overwrite a fresh clone or a local edit.
 
 Use the `Load` button next to `Save` when you explicitly want to pull the latest shared layout into the current browser.
 
