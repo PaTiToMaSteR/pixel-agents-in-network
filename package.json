@@ -4,10 +4,10 @@
   "description": "Standalone web wrapper for the original pablodelucca Pixel Agents VS Code extension with OpenCode and Claude Code session discovery.",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3001",
+    "dev": "next dev -p 3333",
     "network": "node scripts/network.mjs",
     "build": "next build",
-    "start": "next start -p 3001"
+    "start": "next start -p 3333"
   },
   "dependencies": {
     "next": "^15.0.0",

@@ -33,7 +33,7 @@ No IP address is required for normal LAN use. Every computer can run the same co
 Optional flags:
 
 ```bash
-npm run network -- --name "Patito" --port 3001 --hub-port 8787
+npm run network -- --name "Patito" --port 3333 --hub-port 8787
 ```
 
 The `--name` value is shown in every agent label, for example `Patito · opencode · Vibrez`, so you can tell who owns each agent in the shared room.
@@ -73,7 +73,7 @@ npm install
 npm run dev
 ```
 
-The dev server runs on port `3001` by default.
+The dev server runs on port `3333` by default.
 
 ## Build
 

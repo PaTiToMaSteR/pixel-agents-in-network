@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 
 const args = parseArgs(process.argv.slice(2));
-const webPort = Number(args.port || args['web-port'] || 3001);
+const webPort = Number(args.port || args['web-port'] || 3333);
 const hubPort = Number(args['hub-port'] || 8787);
 const discoveryPort = Number(args['discovery-port'] || 47877);
 const discoveryGroup = args['discovery-group'] || '239.255.42.99';
