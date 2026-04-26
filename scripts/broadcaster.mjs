@@ -5,8 +5,9 @@ import path from 'node:path';
 
 const hubUrl = normalizeHubUrl(process.env.PIXEL_AGENTS_HUB_URL || process.argv[2] || 'http://127.0.0.1:8787');
 const machineName = process.env.PIXEL_AGENTS_MACHINE_NAME || defaultOwnerName();
-const machineId = `${os.hostname()}-${machineName}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-const intervalMs = Number(process.env.PIXEL_AGENTS_BROADCAST_INTERVAL_MS || 2000);
+const machineId = `${os.hostname()}-${os.userInfo().username}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+const intervalMs = Number(process.env.PIXEL_AGENTS_BROADCAST_INTERVAL_MS || 5000);
+const verbose = process.env.PIXEL_AGENTS_LOG_LEVEL === 'debug';
 
 function normalizeHubUrl(value) {
   if (value.startsWith('http://') || value.startsWith('https://')) return value.replace(/\/$/, '');
@@ -24,11 +25,18 @@ function defaultOwnerName() {
 
 function getRunningProcessCount(processName) {
   try {
-    const output = execSync('ps -axo comm=', { encoding: 'utf8', timeout: 5000 });
+    const output = execSync('ps -axo comm=,args=', { encoding: 'utf8', timeout: 5000 });
     return output
       .split('\n')
-      .map((line) => path.basename(line.trim()))
-      .filter((name) => name === processName).length;
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((line) => {
+        const [command, argsText = ''] = line.split(/\s{2,}/);
+        if (path.basename(command) !== processName) return false;
+        if (processName !== 'opencode') return true;
+        const args = argsText.trim().split(/\s+/).filter(Boolean);
+        return args.length === 1 && path.basename(args[0]) === 'opencode';
+      }).length;
   } catch {
     return 0;
   }
@@ -150,12 +158,12 @@ async function broadcast() {
       body: JSON.stringify(snapshot),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    console.log(`[broadcaster] ${machineName}: ${agents.length} agents -> ${hubUrl}`);
+    if (verbose) console.log(`[broadcaster] ${machineName}: ${agents.length} agents -> ${hubUrl}`);
   } catch (error) {
     console.error(`[broadcaster] failed to reach ${hubUrl}: ${error instanceof Error ? error.message : error}`);
   }
 }
 
-console.log(`[broadcaster] machine=${machineName} hub=${hubUrl}`);
+if (verbose) console.log(`[broadcaster] machine=${machineName} hub=${hubUrl}`);
 await broadcast();
 setInterval(broadcast, intervalMs);

@@ -6,6 +6,9 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
+const localMessagesCacheTtlMs = Number(process.env.PIXEL_AGENTS_LOCAL_MESSAGES_CACHE_MS || 3000);
+let localMessagesCache: { messages: WebviewMessage[]; expiresAt: number } | null = null;
+
 interface WebviewMessage {
   type: string;
   [key: string]: unknown;
@@ -123,15 +126,22 @@ function getLocalOwnerName() {
 
 function getRunningProcessCount(processName: string) {
   try {
-    const output = execSync('ps -axo comm=', {
+    const output = execSync('ps -axo comm=,args=', {
       encoding: 'utf8',
       timeout: 5000,
     });
 
     return output
       .split('\n')
-      .map((line) => path.basename(line.trim()))
-      .filter((name) => name === processName).length;
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((line) => {
+        const [command, argsText = ''] = line.split(/\s{2,}/);
+        if (path.basename(command) !== processName) return false;
+        if (processName !== 'opencode') return true;
+        const args = argsText.trim().split(/\s+/).filter(Boolean);
+        return args.length === 1 && path.basename(args[0]) === 'opencode';
+      }).length;
   } catch {
     return 0;
   }
@@ -165,6 +175,11 @@ export async function GET() {
   const networkMessages = await getNetworkMessages();
   if (networkMessages) {
     return NextResponse.json({ messages: networkMessages });
+  }
+
+  const now = Date.now();
+  if (localMessagesCache && localMessagesCache.expiresAt > now) {
+    return NextResponse.json({ messages: localMessagesCache.messages });
   }
 
   const messages: WebviewMessage[] = [];
@@ -248,6 +263,8 @@ export async function GET() {
   }
 
   messages.push({ type: 'layoutReady' });
+
+  localMessagesCache = { messages, expiresAt: Date.now() + localMessagesCacheTtlMs };
 
   return NextResponse.json({ messages });
 }

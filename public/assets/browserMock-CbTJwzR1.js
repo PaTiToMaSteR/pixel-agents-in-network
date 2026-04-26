@@ -11,7 +11,6 @@ async function getJson(path) {
 }
 
 export async function initBrowserMock() {
-  console.log('[BrowserMock] Loading standalone assets...');
   const [characters, floorSprites, wallSets, furnitureSprites, furnitureCatalog, assetIndex] =
     await Promise.all([
       getJson('./assets/decoded/characters.json'),
@@ -27,9 +26,6 @@ export async function initBrowserMock() {
     : null;
 
   payload = { characters, floorSprites, wallSets, furnitureSprites, furnitureCatalog, layout };
-  console.log(
-    `[BrowserMock] Ready: ${characters.length} chars, ${floorSprites.length} floors, ${wallSets.length} wall sets, ${furnitureCatalog.length} furniture items`,
-  );
 }
 
 export async function dispatchMockMessages() {
@@ -107,7 +103,8 @@ export async function dispatchMockMessages() {
       }
 
       if (message.type === 'agentStatus') {
-        if (knownAgentStatuses.get(message.id) === message.status) continue;
+        // Keep idle status flowing so the room can keep sending idle agents back to the kitchen.
+        if (message.status !== 'idle' && knownAgentStatuses.get(message.id) === message.status) continue;
         knownAgentStatuses.set(message.id, message.status);
       }
 
@@ -139,8 +136,6 @@ export async function dispatchMockMessages() {
   };
 
   setTimeout(sendInitial, 0);
-  [100, 500, 1000, 2000].forEach((delay) => setTimeout(sendAgentUpdates, delay));
-  setInterval(sendAgentUpdates, 3000);
-
-  console.log('[BrowserMock] Messages dispatched');
+  [500, 2000].forEach((delay) => setTimeout(sendAgentUpdates, delay));
+  setInterval(sendAgentUpdates, 5000);
 }

@@ -149,7 +149,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, '0.0.0.0', () => {
-  console.log(`[hub] listening on http://0.0.0.0:${port}`);
+  if (process.env.PIXEL_AGENTS_LOG_LEVEL === 'debug') console.log(`[hub] listening on http://0.0.0.0:${port}`);
 });
 
 const discoverySocket = dgram.createSocket({ type: 'udp4', reuseAddr: true });

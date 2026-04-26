@@ -18,6 +18,7 @@ const joinedRemoteHub = Boolean(explicitHub || discoveredHub);
 const hubUrl = normalizeHubUrl(explicitHub || discoveredHub || `127.0.0.1:${hubPort}`);
 const publicHubUrl = normalizeHubUrl(explicitHub || discoveredHub || `${lanIp}:${hubPort}`);
 const children = [];
+const verbose = process.env.PIXEL_AGENTS_LOG_LEVEL === 'debug';
 
 function parseArgs(values) {
   const parsed = {};
@@ -114,7 +115,7 @@ function moveStaleNextBuild() {
     suffix += 1;
   }
   fs.renameSync(nextDir, staleDir);
-  console.log(`[network] moved stale .next to ${path.basename(staleDir)}`);
+  if (verbose) console.log(`[network] moved stale .next to ${path.basename(staleDir)}`);
 }
 
 let shuttingDown = false;
@@ -128,12 +129,12 @@ process.on('SIGINT', () => shutdown(0));
 process.on('SIGTERM', () => shutdown(0));
 
 if (!fs.existsSync(path.join(process.cwd(), 'node_modules'))) {
-  console.log('[network] node_modules missing, running npm install');
+  if (verbose) console.log('[network] node_modules missing, running npm install');
   await runSyncStep('npm', ['install']);
 }
 
 if (!devMode) {
-  console.log('[network] building web app');
+  if (verbose) console.log('[network] building web app');
   await runSyncStep('npm', ['run', 'build']);
 } else {
   moveStaleNextBuild();
@@ -171,15 +172,19 @@ setTimeout(() => {
   spawn('open', [appUrl], { stdio: 'ignore', detached: true }).unref();
 }, 1500);
 
-console.log('');
-console.log(`[network] room: ${appUrl}`);
-console.log(`[network] LAN room: http://${lanIp}:${webPort}`);
-console.log(`[network] hub: ${publicHubUrl}`);
-console.log(`[network] web mode: ${devMode ? 'next dev with hot reload' : 'next start'}`);
-if (discoveredHub) {
-  console.log(`[network] discovered existing LAN hub: ${discoveredHub}`);
-} else if (!joinedRemoteHub) {
-  console.log('[network] no LAN hub found, started one on this machine');
-  console.log('[network] other machines can join automatically with: npm run network');
+if (verbose) {
+  console.log('');
+  console.log(`[network] room: ${appUrl}`);
+  console.log(`[network] LAN room: http://${lanIp}:${webPort}`);
+  console.log(`[network] hub: ${publicHubUrl}`);
+  console.log(`[network] web mode: ${devMode ? 'next dev with hot reload' : 'next start'}`);
 }
-console.log('[network] press Ctrl+C to stop');
+if (discoveredHub) {
+  if (verbose) console.log(`[network] discovered existing LAN hub: ${discoveredHub}`);
+} else if (!joinedRemoteHub) {
+  if (verbose) {
+    console.log('[network] no LAN hub found, started one on this machine');
+    console.log('[network] other machines can join automatically with: npm run network');
+  }
+}
+if (verbose) console.log('[network] press Ctrl+C to stop');

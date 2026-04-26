@@ -23,7 +23,7 @@ function installLayoutSaveBridge() {
   if (window.__pixelAgentsLayoutSaveBridgeInstalled) return;
 
   window.__pixelAgentsLayoutSaveBridgeInstalled = true;
-  const originalLog = console.log.bind(console);
+  const warn = console.warn.bind(console);
   console.log = (...args) => {
     const message = args[1];
     if (args[0] === '[vscode.postMessage]' && message?.type === 'saveLayout' && message.layout) {
@@ -31,9 +31,8 @@ function installLayoutSaveBridge() {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ layout: message.layout, origin: getLayoutOrigin() }),
-      }).catch((error) => originalLog('[Pixel Agents] Failed to save shared layout', error));
+      }).catch((error) => warn('[Pixel Agents] Failed to save shared layout', error));
     }
-    originalLog(...args);
   };
 }
 

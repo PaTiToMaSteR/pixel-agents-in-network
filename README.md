@@ -44,6 +44,8 @@ npm run dev -- --name "Patito" --port 4555 --hub-port 8787
 
 The `--name` value is shown in every agent label, for example `Patito · opencode · Vibrez`, so you can tell who owns each agent in the shared room.
 
+Runtime logs are warning/error-only by default. Set `PIXEL_AGENTS_LOG_LEVEL=debug` before the command when you need startup and broadcast diagnostics.
+
 If multicast discovery is blocked by your network, you can still join manually:
 
 ```bash
