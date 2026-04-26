@@ -96,11 +96,11 @@ It specifically uses the original Pixel Agents extension assets and webview runt
 
 ## Shared Layouts
 
-Click `Layout`, edit the room, then click `Save`. The browser posts the layout to `/api/layout`; when network mode is running, that API forwards the save to the LAN hub.
+Click `Layout`, edit the room, then click `Save`. The browser posts the layout to `/api/layout`; when network mode is running, that API forwards the save to the LAN hub and other browsers apply the saved layout automatically.
 
-Fresh launches always start from the committed default layout in `public/assets/default-layout-1.json`. Saved hub layouts are not applied automatically, because an old hub snapshot can otherwise overwrite a fresh clone or a local edit.
+Fresh launches start from the committed default layout in `public/assets/default-layout-1.json`, so updating that file changes the office layout for everyone who downloads the repo.
 
-Use the `Load` button next to `Save` when you explicitly want to pull the latest shared layout into the current browser.
+Use the `Load` button next to `Save` when you want to manually pull the latest shared layout again.
 
 ## Development
 

@@ -6,6 +6,7 @@ const providerIcons = {
 
 const compactLabelsKey = 'pixel-agents.compact-labels';
 const layoutOriginKey = 'pixel-agents.layout-origin';
+let latestSharedLayoutUpdatedAt = 0;
 
 function getLayoutOrigin() {
   if (window.__pixelAgentsLayoutOrigin) return window.__pixelAgentsLayoutOrigin;
@@ -31,9 +32,45 @@ function installLayoutSaveBridge() {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ layout: message.layout, origin: getLayoutOrigin() }),
-      }).catch((error) => warn('[Pixel Agents] Failed to save shared layout', error));
+      })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data) => {
+          if (typeof data?.updatedAt === 'number') latestSharedLayoutUpdatedAt = data.updatedAt;
+        })
+        .catch((error) => warn('[Pixel Agents] Failed to save shared layout', error));
     }
   };
+}
+
+function applySharedLayout(layout, updatedAt) {
+  latestSharedLayoutUpdatedAt = updatedAt;
+  window.dispatchEvent(new MessageEvent('message', {
+    data: { type: 'layoutLoaded', layout, force: true },
+  }));
+}
+
+async function syncSharedLayout() {
+  try {
+    const response = await fetch('/api/layout', { cache: 'no-store' });
+    if (!response.ok) return;
+    const data = await response.json();
+    if (!data.layout || typeof data.updatedAt !== 'number') return;
+    if (data.updatedAt <= latestSharedLayoutUpdatedAt) return;
+    if (data.origin && data.origin === getLayoutOrigin()) {
+      latestSharedLayoutUpdatedAt = data.updatedAt;
+      return;
+    }
+
+    applySharedLayout(data.layout, data.updatedAt);
+  } catch {}
+}
+
+function installSharedLayoutSync() {
+  if (window.__pixelAgentsSharedLayoutSyncInstalled) return;
+
+  window.__pixelAgentsSharedLayoutSyncInstalled = true;
+  setTimeout(syncSharedLayout, 1000);
+  setInterval(syncSharedLayout, 2000);
 }
 
 async function loadSharedLayout() {
@@ -46,9 +83,7 @@ async function loadSharedLayout() {
       return;
     }
 
-    window.dispatchEvent(new MessageEvent('message', {
-      data: { type: 'layoutLoaded', layout: data.layout, force: true },
-    }));
+    applySharedLayout(data.layout, typeof data.updatedAt === 'number' ? data.updatedAt : Date.now());
   } catch (error) {
     alert(`Failed to load layout: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -241,6 +276,7 @@ function enhancePanel(panel) {
 
 function enhanceLabels() {
   installLoadLayoutButton();
+  installSharedLayoutSync();
   document.querySelectorAll('.pixel-panel').forEach(enhancePanel);
 }
 
