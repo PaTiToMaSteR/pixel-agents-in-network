@@ -29,6 +29,11 @@ const conversationLines = [
   ['Ble-bla, ble-bla...', 'Blo blo, bli bli.'],
   ['Bla? ble, bli, blo.', 'Ble... blo... bla.'],
   ['Blu blu, blip blip!', 'Bla bla, blo blo.'],
+  ['Bli? bli-bli?', 'Bla! blo-blo.'],
+  ['Blo blo, blu?', 'Ble ble, bla.'],
+  ['Bla bla... bli?', 'Blu! bli, blo.'],
+  ['Ble? blo? bla?', 'Bli-bli, blu!'],
+  ['Blu blu ble...', 'Bla? blo! bli.'],
 ];
 const kitchenSpeechDelayMs = 7000;
 const kitchenSpeechLine = 'I got lost among so many windows!!';
