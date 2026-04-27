@@ -7,15 +7,33 @@ const idleSince = new Map();
 const idleAwayTimers = new Map();
 const idleSofaTimers = new Map();
 const lastIdleAwaySent = new Map();
+const lastConversationSent = new Map();
+const activeConversationIds = new Set();
 let agentLoadErrorLogged = false;
 let eventsStarted = false;
 
 const missingAgentCloseThreshold = 3;
-const idleAwayDelayMs = 20000;
-const idleAwayRepeatMs = 20000;
+const idleAwayDelayMs = 30000;
 const idleSofaDelayMs = 60000;
 const idleSofaRepeatMinMs = 45000;
 const idleSofaRepeatMaxMs = 120000;
+const conversationDelayMs = 25000;
+const conversationRepeatMs = 45000;
+const conversationTotalMs = 10000;
+const conversationTurnPauseMs = 1200;
+const conversationTypeIntervalMs = 120;
+const conversationBubbleHoldSeconds = 1;
+const conversationLines = [
+  ['Bla, bla, bla...', 'Ble, ble, ble...'],
+  ['Bli bli, blo blo?', 'Blu, blu, bla!'],
+  ['Ble-bla, ble-bla...', 'Blo blo, bli bli.'],
+  ['Bla? ble, bli, blo.', 'Ble... blo... bla.'],
+  ['Blu blu, blip blip!', 'Bla bla, blo blo.'],
+];
+const kitchenSpeechDelayMs = 7000;
+const kitchenSpeechLine = 'I got lost among so many windows!!';
+const kitchenSpeechTypeIntervalMs = 90;
+const kitchenSpeechBubbleHoldSeconds = 1.4;
 
 async function getJson(path) {
   const res = await fetch(path);
@@ -61,14 +79,106 @@ export async function dispatchMockMessages() {
   const randomSofaDelay = () =>
     idleSofaRepeatMinMs + Math.floor(Math.random() * (idleSofaRepeatMaxMs - idleSofaRepeatMinMs));
 
+  const typeKitchenSpeech = (id) => {
+    for (let index = 1; index <= kitchenSpeechLine.length; index++) {
+      setTimeout(() => {
+        if (!knownAgentIds.has(id) || knownAgentStatuses.get(id) !== 'idle' || knownAgentTools.has(id)) return;
+        dispatch({
+          type: 'agentConversation',
+          id,
+          solo: true,
+          desperate: true,
+          line: kitchenSpeechLine.slice(0, index),
+          duration: kitchenSpeechBubbleHoldSeconds,
+        });
+      }, index * kitchenSpeechTypeIntervalMs);
+    }
+  };
+
+  const canTalk = (id, now) =>
+    knownAgentIds.has(id) &&
+    knownAgentStatuses.get(id) === 'idle' &&
+    !knownAgentTools.has(id) &&
+    !activeConversationIds.has(id) &&
+    !idleAwayTimers.has(id) &&
+    now - (lastConversationSent.get(id) || 0) >= conversationRepeatMs;
+
+  const canContinueConversation = (id) =>
+    knownAgentIds.has(id) && knownAgentStatuses.get(id) === 'idle' && !knownAgentTools.has(id);
+
+  const typeLine = (id, partnerId, line) => {
+    for (let index = 1; index <= line.length; index++) {
+      setTimeout(() => {
+        if (!canContinueConversation(id)) return;
+        dispatch({
+          type: 'agentConversation',
+          id,
+          partnerId,
+          line: line.slice(0, index),
+          duration: conversationBubbleHoldSeconds,
+        });
+      }, index * conversationTypeIntervalMs);
+    }
+  };
+
+  const startConversation = (first, second, bucket) => {
+    const startedAt = Date.now();
+    activeConversationIds.add(first);
+    activeConversationIds.add(second);
+    lastConversationSent.set(first, startedAt);
+    lastConversationSent.set(second, startedAt);
+
+    const finish = () => {
+      activeConversationIds.delete(first);
+      activeConversationIds.delete(second);
+    };
+
+    const runTurn = (turn) => {
+      if (
+        Date.now() - startedAt >= conversationTotalMs ||
+        !canContinueConversation(first) ||
+        !canContinueConversation(second)
+      ) {
+        finish();
+        return;
+      }
+
+      const speaker = turn % 2 === 0 ? first : second;
+      const listener = turn % 2 === 0 ? second : first;
+      const pair = conversationLines[(bucket + Math.floor(turn / 2)) % conversationLines.length];
+      const line = pair[turn % 2];
+      typeLine(speaker, listener, line);
+      setTimeout(runTurn, line.length * conversationTypeIntervalMs + conversationTurnPauseMs, turn + 1);
+    };
+
+    runTurn(0);
+  };
+
+  const maybeSendConversation = () => {
+    const now = Date.now();
+    const idleIds = [...knownAgentIds]
+      .filter((id) => canTalk(id, now) && now - (idleSince.get(id) || now) >= conversationDelayMs)
+      .sort((a, b) => String(a).localeCompare(String(b)));
+
+    if (idleIds.length < 2) return;
+
+    const bucket = Math.floor(now / conversationRepeatMs);
+    const first = idleIds[bucket % idleIds.length];
+    const second = idleIds[(bucket + 1) % idleIds.length];
+    startConversation(first, second, bucket);
+  };
+
   const scheduleIdleAway = (id) => {
     if (idleAwayTimers.has(id)) return;
     const timer = setTimeout(() => {
       idleAwayTimers.delete(id);
-      if (!knownAgentIds.has(id) || knownAgentStatuses.get(id) !== 'idle') return;
+      if (!knownAgentIds.has(id) || knownAgentStatuses.get(id) !== 'idle' || knownAgentTools.has(id)) return;
       lastIdleAwaySent.set(id, Date.now());
+      activeConversationIds.add(id);
       dispatch({ type: 'agentStatus', id, status: 'idle', away: true });
-      scheduleIdleAway(id);
+
+      setTimeout(() => typeKitchenSpeech(id), kitchenSpeechDelayMs);
+      setTimeout(() => activeConversationIds.delete(id), kitchenSpeechDelayMs + kitchenSpeechLine.length * kitchenSpeechTypeIntervalMs + 2000);
     }, idleAwayDelayMs);
     idleAwayTimers.set(id, timer);
   };
@@ -163,18 +273,10 @@ export async function dispatchMockMessages() {
         if (message.status === 'idle') {
           if (previousStatus !== 'idle' || !idleSince.has(message.id)) {
             idleSince.set(message.id, now);
-            scheduleIdleAway(message.id);
-            scheduleIdleSofa(message.id);
+            if (previousStatus === 'active') scheduleIdleAway(message.id);
           }
 
-          const startedAt = idleSince.get(message.id) || now;
-          const lastAway = lastIdleAwaySent.get(message.id) || 0;
-          const shouldSendAway = now - startedAt >= idleAwayDelayMs && now - lastAway >= idleAwayRepeatMs;
-
-          if (shouldSendAway) {
-            message = { ...message, away: true };
-            lastIdleAwaySent.set(message.id, now);
-          } else if (previousStatus === 'idle') {
+          if (previousStatus === 'idle') {
             continue;
           }
         } else {
@@ -202,6 +304,8 @@ export async function dispatchMockMessages() {
         knownAgentStatuses.delete(id);
         missingAgentCounts.delete(id);
         idleSince.delete(id);
+        lastConversationSent.delete(id);
+        activeConversationIds.delete(id);
         clearIdleAwayTimer(id);
         clearIdleSofaTimer(id);
         lastIdleAwaySent.delete(id);
@@ -215,6 +319,7 @@ export async function dispatchMockMessages() {
   const sendInitial = async () => {
     const agentMessages = await loadAgentMessages();
     [...assetMessages, ...normalizeAgentMessages(agentMessages || [])].forEach(dispatch);
+    maybeSendConversation();
     window.parent.postMessage({ type: 'layoutReady' }, '*');
   };
 
@@ -222,6 +327,7 @@ export async function dispatchMockMessages() {
     const agentMessages = await loadAgentMessages();
     if (!agentMessages) return;
     normalizeAgentMessages(agentMessages).forEach(dispatch);
+    maybeSendConversation();
   };
 
   const startEventStream = () => {
@@ -234,6 +340,7 @@ export async function dispatchMockMessages() {
         const data = JSON.parse(event.data);
         const messages = Array.isArray(data.messages) ? data.messages : [];
         normalizeAgentMessages(messages).forEach(dispatch);
+        maybeSendConversation();
       } catch (err) {
         console.warn('[BrowserMock] Failed to process live agent event.', err);
       }
