@@ -49,32 +49,85 @@ function stableNumericId(value) {
   return (hash >>> 0) % 2147483647;
 }
 
-function toMessages() {
-  const messages = [];
-  for (const machine of activeMachines()) {
-    for (const agent of machine.agents || []) {
-      const id = stableNumericId(`${machine.machineId}:${agent.agentId}`);
-      const status = agent.status || 'idle';
-      const fallbackLabel = `${agent.ownerName || machine.machineName} · ${agent.provider || 'agent'} · ${agent.projectName || 'unknown'}`;
-      const folderName = agent.label || fallbackLabel;
+function nonOverlappingNumericId(value, usedIds, usedIdleSlots) {
+  const base = stableNumericId(value);
 
-      messages.push({ type: 'agentCreated', id, folderName, isExternal: true });
-
-      if (agent.currentTool) {
-        messages.push({
-          type: 'agentToolStart',
-          id,
-          toolId: `${machine.machineId}-${agent.agentId}-${agent.currentTool}`,
-          status: `Using ${agent.currentTool}`,
-          toolName: agent.currentTool,
-        });
-      }
-
-      messages.push({ type: 'agentStatus', id, status });
+  for (let offset = 0; offset < 7; offset += 1) {
+    const id = base + offset > 2147483646 ? base + offset - 2147483646 : base + offset;
+    const idleSlot = id % 7;
+    if (!usedIds.has(id) && !usedIdleSlots.has(idleSlot)) {
+      usedIds.add(id);
+      usedIdleSlots.add(idleSlot);
+      return id;
     }
   }
+
+  let id = base;
+  while (usedIds.has(id)) id = id === 2147483646 ? 1 : id + 1;
+  usedIds.add(id);
+  usedIdleSlots.add(id % 7);
+  return id;
+}
+
+function toMessages() {
+  const messages = [];
+  const usedIds = new Set();
+  const usedIdleSlots = new Set();
+  const visibleAgents = new Map();
+
+  for (const machine of activeMachines()) {
+    for (const agent of machine.agents || []) {
+      const key = `${machine.hostname || machine.machineId}:${agent.provider || 'agent'}:${agent.projectName || agent.agentId}`;
+      const existing = visibleAgents.get(key);
+      if (!existing || (agent.lastSeen || machine.lastSeen || 0) > (existing.agent.lastSeen || existing.machine.lastSeen || 0)) {
+        visibleAgents.set(key, { machine, agent });
+      }
+    }
+  }
+
+  for (const { machine, agent } of [...visibleAgents.values()].sort((a, b) => {
+    const ownerCompare = (a.agent.ownerName || a.machine.machineName || '').localeCompare(b.agent.ownerName || b.machine.machineName || '');
+    if (ownerCompare !== 0) return ownerCompare;
+    return (a.agent.projectName || '').localeCompare(b.agent.projectName || '');
+  })) {
+    const id = nonOverlappingNumericId(`${machine.hostname || machine.machineId}:${agent.provider || 'agent'}:${agent.projectName || agent.agentId}`, usedIds, usedIdleSlots);
+    const status = agent.status || 'idle';
+    const fallbackLabel = `${agent.ownerName || machine.machineName} · ${agent.provider || 'agent'} · ${agent.projectName || 'unknown'}`;
+    const folderName = agent.label || fallbackLabel;
+
+    messages.push({ type: 'agentCreated', id, folderName, isExternal: true });
+
+    if (agent.currentTool) {
+      messages.push({
+        type: 'agentToolStart',
+        id,
+        toolId: `${machine.machineId}-${agent.agentId}-${agent.currentTool}`,
+        status: `Using ${agent.currentTool}`,
+        toolName: agent.currentTool,
+      });
+    }
+
+    messages.push({ type: 'agentStatus', id, status });
+  }
+
   messages.push({ type: 'layoutReady' });
   return messages;
+}
+
+function agentIdentity(agent) {
+  return `${agent.provider || 'agent'}:${agent.projectName || agent.agentId}`;
+}
+
+function removeOverlappingSnapshots(snapshot) {
+  const hostname = snapshot.hostname;
+  if (!hostname) return;
+
+  const incomingAgents = new Set((snapshot.agents || []).map(agentIdentity));
+  for (const [id, existing] of machines) {
+    if (id === snapshot.machineId || existing.hostname !== hostname) continue;
+    const overlaps = (existing.agents || []).some((agent) => incomingAgents.has(agentIdentity(agent)));
+    if (overlaps) machines.delete(id);
+  }
 }
 
 function sendJson(res, status, payload) {
@@ -137,6 +190,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { error: 'Expected machineId and agents[]' });
         return;
       }
+      removeOverlappingSnapshots(snapshot);
       machines.set(snapshot.machineId, { ...snapshot, lastSeen: Date.now() });
       sendJson(res, 200, { ok: true });
     } catch (error) {

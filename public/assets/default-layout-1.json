@@ -3647,24 +3647,6 @@
       "row": 10
     },
     {
-      "uid": "f-1777114890279-amh1",
-      "type": "DOUBLE_BOOKSHELF",
-      "col": 6,
-      "row": 9
-    },
-    {
-      "uid": "f-1777114893207-qvzm",
-      "type": "LARGE_PAINTING",
-      "col": 10,
-      "row": 9
-    },
-    {
-      "uid": "f-1777114896882-b7p1",
-      "type": "CLOCK",
-      "col": 9,
-      "row": 9
-    },
-    {
       "uid": "f-1777197889256-d2l9",
       "type": "TABLE_FRONT",
       "col": 9,
@@ -3773,54 +3755,6 @@
       "row": 19
     },
     {
-      "uid": "f-1777198124776-ffmh",
-      "type": "DESK_FRONT",
-      "col": 1,
-      "row": 10
-    },
-    {
-      "uid": "f-1777198126243-0kt6",
-      "type": "DESK_FRONT",
-      "col": 4,
-      "row": 10
-    },
-    {
-      "uid": "f-1777198131627-fqfo",
-      "type": "PC_FRONT_OFF",
-      "col": 1,
-      "row": 10
-    },
-    {
-      "uid": "f-1777198135093-rpex",
-      "type": "PC_FRONT_OFF",
-      "col": 2,
-      "row": 10
-    },
-    {
-      "uid": "f-1777198135860-6907",
-      "type": "PC_FRONT_OFF",
-      "col": 3,
-      "row": 10
-    },
-    {
-      "uid": "f-1777198136743-jckl",
-      "type": "PC_FRONT_OFF",
-      "col": 4,
-      "row": 10
-    },
-    {
-      "uid": "f-1777198137477-mw3l",
-      "type": "PC_FRONT_OFF",
-      "col": 5,
-      "row": 10
-    },
-    {
-      "uid": "f-1777198138560-n68e",
-      "type": "PC_FRONT_OFF",
-      "col": 6,
-      "row": 10
-    },
-    {
       "uid": "f-1777198160606-1vie",
       "type": "TABLE_FRONT",
       "col": 9,
@@ -3903,6 +3837,36 @@
       "type": "SOFA_SIDE",
       "col": 30,
       "row": 19
+    },
+    {
+      "uid": "f-1777266340588-b1kp",
+      "type": "SOFA_SIDE",
+      "col": 1,
+      "row": 11
+    },
+    {
+      "uid": "f-1777266343289-6qjw",
+      "type": "SOFA_SIDE:left",
+      "col": 3,
+      "row": 11
+    },
+    {
+      "uid": "f-1777266344036-tojn",
+      "type": "SOFA_SIDE:left",
+      "col": 3,
+      "row": 13
+    },
+    {
+      "uid": "f-1777266364072-k0o8",
+      "type": "SOFA_BACK",
+      "col": 5,
+      "row": 14
+    },
+    {
+      "uid": "f-1777266370634-vqoc",
+      "type": "WHITEBOARD",
+      "col": 5,
+      "row": 9
     }
   ]
 }

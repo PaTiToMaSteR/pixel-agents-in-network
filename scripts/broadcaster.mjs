@@ -99,6 +99,18 @@ function getClaudeCodeSessions() {
   return sessions;
 }
 
+function newestSessionByProject(sessions) {
+  const byProject = new Map();
+
+  for (const session of sessions) {
+    const key = `${session.provider}:${session.directory}`;
+    const existing = byProject.get(key);
+    if (!existing || session.time_updated > existing.time_updated) byProject.set(key, session);
+  }
+
+  return [...byProject.values()];
+}
+
 function parseOpencodeExport(sessionId) {
   try {
     const output = execSync(`opencode export --json ${sessionId} 2>/dev/null || echo '{}'`, { encoding: 'utf8', timeout: 1000 });
@@ -128,8 +140,8 @@ function discoverAgents() {
   const opencodeProcessCount = getRunningProcessCount('opencode');
   const claudeProcessCount = getRunningProcessCount('claude');
   const sessions = [
-    ...getOpencodeSessions().sort((a, b) => b.time_updated - a.time_updated).slice(0, opencodeProcessCount),
-    ...getClaudeCodeSessions().sort((a, b) => b.time_updated - a.time_updated).slice(0, claudeProcessCount),
+    ...newestSessionByProject(getOpencodeSessions()).sort((a, b) => b.time_updated - a.time_updated).slice(0, opencodeProcessCount),
+    ...newestSessionByProject(getClaudeCodeSessions()).sort((a, b) => b.time_updated - a.time_updated).slice(0, claudeProcessCount),
   ];
 
   return sessions.map((session) => {

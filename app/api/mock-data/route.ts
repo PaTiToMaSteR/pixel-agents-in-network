@@ -97,6 +97,18 @@ function getClaudeCodeSessions(): Array<{ id: string; title: string; directory: 
   return sessions;
 }
 
+function newestSessionByProject<T extends { directory: string; provider: string; time_updated: number }>(sessions: T[]): T[] {
+  const byProject = new Map<string, T>();
+
+  for (const session of sessions) {
+    const key = `${session.provider}:${session.directory}`;
+    const existing = byProject.get(key);
+    if (!existing || session.time_updated > existing.time_updated) byProject.set(key, session);
+  }
+
+  return [...byProject.values()];
+}
+
 function parseOpencodeExport(sessionId: string) {
   try {
     const output = execSync(`opencode export --json ${sessionId} 2>/dev/null || echo '{}'`, {
@@ -204,10 +216,10 @@ export async function GET() {
   const opencodeProcessCount = getRunningProcessCount('opencode');
   const claudeProcessCount = getRunningProcessCount('claude');
 
-  const opencodeSessions = getOpencodeSessions()
+  const opencodeSessions = newestSessionByProject(getOpencodeSessions())
     .sort((a, b) => b.time_updated - a.time_updated)
     .slice(0, opencodeProcessCount);
-  const claudeSessions = getClaudeCodeSessions()
+  const claudeSessions = newestSessionByProject(getClaudeCodeSessions())
     .sort((a, b) => b.time_updated - a.time_updated)
     .slice(0, claudeProcessCount);
 
