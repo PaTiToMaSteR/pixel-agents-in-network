@@ -23,6 +23,15 @@ interface LocalSession {
   provider: string;
 }
 
+interface OpencodePartSummary {
+  type?: string;
+  tool?: string;
+  state_status?: string;
+  status?: string;
+  time_start?: number;
+  time_end?: number;
+}
+
 async function getNetworkMessages(): Promise<WebviewMessage[] | null> {
   const hubUrl = process.env.PIXEL_AGENTS_HUB_URL;
   if (!hubUrl) return null;
@@ -120,32 +129,23 @@ function getOpencodeActivity(session: LocalSession): { active: boolean; toolName
 
   try {
     const result = execSync(
-      `sqlite3 -json "${dbPath}" "SELECT time_updated, data FROM part WHERE session_id = ${sqlString(session.id)} ORDER BY time_updated DESC LIMIT 120;"`,
-      { encoding: 'utf8', timeout: 1000 },
+      `sqlite3 -json "${dbPath}" "SELECT json_extract(data,'$.type') AS type, json_extract(data,'$.tool') AS tool, json_extract(data,'$.state.status') AS state_status, json_extract(data,'$.status') AS status, json_extract(data,'$.time.start') AS time_start, json_extract(data,'$.time.end') AS time_end FROM part WHERE session_id = ${sqlString(session.id)} ORDER BY time_updated DESC LIMIT 60;"`,
+      { encoding: 'utf8', timeout: 3000 },
     );
-    const rows = JSON.parse(result || '[]') as Array<{ data?: string }>;
+    const rows = JSON.parse(result || '[]') as OpencodePartSummary[];
     let latestStepMarker: string | null = null;
 
-    for (const row of rows) {
-      if (!row.data) continue;
-
-      let part: { type?: string; tool?: string; state?: { status?: string }; status?: string; time?: { start?: number; end?: number } };
-      try {
-        part = JSON.parse(row.data);
-      } catch {
-        continue;
-      }
-
+    for (const part of rows) {
       if (!latestStepMarker && (part.type === 'step-start' || part.type === 'step-finish')) {
         latestStepMarker = part.type;
       }
 
-      const toolStatus = part.state?.status || part.status;
+      const toolStatus = part.state_status || part.status;
       if (part.type === 'tool' && toolStatus && opencodeActiveToolStatuses.has(toolStatus)) {
         return { active: true, toolName: part.tool || 'Working' };
       }
 
-      if ((part.type === 'text' || part.type === 'reasoning') && part.time?.start && !part.time?.end) {
+      if ((part.type === 'text' || part.type === 'reasoning') && part.time_start && !part.time_end) {
         return { active: true, toolName: 'Working' };
       }
     }

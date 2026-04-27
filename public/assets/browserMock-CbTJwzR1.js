@@ -8,6 +8,7 @@ const idleAwayTimers = new Map();
 const idleSofaTimers = new Map();
 const lastIdleAwaySent = new Map();
 let agentLoadErrorLogged = false;
+let eventsStarted = false;
 
 const missingAgentCloseThreshold = 3;
 const idleAwayDelayMs = 20000;
@@ -223,7 +224,31 @@ export async function dispatchMockMessages() {
     normalizeAgentMessages(agentMessages).forEach(dispatch);
   };
 
+  const startEventStream = () => {
+    if (eventsStarted || !('EventSource' in window)) return false;
+    eventsStarted = true;
+
+    const source = new EventSource('/api/events');
+    source.addEventListener('messages', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const messages = Array.isArray(data.messages) ? data.messages : [];
+        normalizeAgentMessages(messages).forEach(dispatch);
+      } catch (err) {
+        console.warn('[BrowserMock] Failed to process live agent event.', err);
+      }
+    });
+    source.addEventListener('error', () => {
+      if (!agentLoadErrorLogged) {
+        console.warn('[BrowserMock] Live agent events unavailable; polling fallback remains active.');
+        agentLoadErrorLogged = true;
+      }
+    });
+    return true;
+  };
+
   setTimeout(sendInitial, 0);
   [500, 2000].forEach((delay) => setTimeout(sendAgentUpdates, delay));
-  setInterval(sendAgentUpdates, 5000);
+  startEventStream();
+  setInterval(sendAgentUpdates, 30000);
 }

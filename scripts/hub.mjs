@@ -7,6 +7,7 @@ const ttlMs = Number(process.env.PIXEL_AGENTS_TTL_MS || 15000);
 const discoveryPort = Number(process.env.PIXEL_AGENTS_DISCOVERY_PORT || 47877);
 const discoveryGroup = process.env.PIXEL_AGENTS_DISCOVERY_GROUP || '239.255.42.99';
 const machines = new Map();
+const eventClients = new Set();
 let sharedLayout = null;
 let sharedLayoutUpdatedAt = 0;
 let sharedLayoutOrigin = null;
@@ -140,6 +141,22 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function sendEvent(res, event, payload) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function broadcastMessages() {
+  const payload = { messages: toMessages() };
+  for (const res of [...eventClients]) {
+    try {
+      sendEvent(res, 'messages', payload);
+    } catch {
+      eventClients.delete(res);
+    }
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     sendJson(res, 204, {});
@@ -158,6 +175,21 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && req.url === '/messages') {
     sendJson(res, 200, { messages: toMessages() });
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/events') {
+    res.writeHead(200, {
+      'access-control-allow-origin': '*',
+      'cache-control': 'no-store, no-transform',
+      'connection': 'keep-alive',
+      'content-type': 'text/event-stream; charset=utf-8',
+      'x-accel-buffering': 'no',
+    });
+    res.write(': connected\n\n');
+    eventClients.add(res);
+    sendEvent(res, 'messages', { messages: toMessages() });
+    req.on('close', () => eventClients.delete(res));
     return;
   }
 
@@ -193,6 +225,7 @@ const server = http.createServer(async (req, res) => {
       removeOverlappingSnapshots(snapshot);
       machines.set(snapshot.machineId, { ...snapshot, lastSeen: Date.now() });
       sendJson(res, 200, { ok: true });
+      broadcastMessages();
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : 'Bad request' });
     }
@@ -216,6 +249,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       sendJson(res, 200, { ok: true, removed });
+      if (removed > 0) broadcastMessages();
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : 'Bad request' });
     }
@@ -243,3 +277,13 @@ setInterval(() => {
   }));
   discoverySocket.send(payload, discoveryPort, discoveryGroup);
 }, 1000);
+
+setInterval(() => {
+  for (const res of [...eventClients]) {
+    try {
+      res.write(': heartbeat\n\n');
+    } catch {
+      eventClients.delete(res);
+    }
+  }
+}, 10000);
