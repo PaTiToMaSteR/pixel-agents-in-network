@@ -8,6 +8,7 @@ const machineName = process.env.PIXEL_AGENTS_MACHINE_NAME || defaultOwnerName();
 const machineId = `${os.hostname()}-${os.userInfo().username}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 const intervalMs = Number(process.env.PIXEL_AGENTS_BROADCAST_INTERVAL_MS || 5000);
 const verbose = process.env.PIXEL_AGENTS_LOG_LEVEL === 'debug';
+const opencodeActiveToolStatuses = new Set(['running', 'pending']);
 
 function normalizeHubUrl(value) {
   if (value.startsWith('http://') || value.startsWith('https://')) return value.replace(/\/$/, '');
@@ -61,7 +62,7 @@ function getRunningProcesses(processName) {
 
 function getOpencodeSessions() {
   const sessions = [];
-  const dbPath = path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
+  const dbPath = getOpencodeDbPath();
   if (!fs.existsSync(dbPath)) return sessions;
 
   try {
@@ -78,6 +79,14 @@ function getOpencodeSessions() {
     }
   } catch {}
   return sessions;
+}
+
+function getOpencodeDbPath() {
+  return path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
+}
+
+function sqlString(value) {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 function folderNameFromClaudeProjectDir(dirName) {
@@ -116,33 +125,51 @@ function getClaudeCodeSessions() {
   return sessions;
 }
 
-function newestSessionByProject(sessions) {
-  const byProject = new Map();
+function opencodeCurrentTool(session) {
+  const dbPath = getOpencodeDbPath();
+  if (!fs.existsSync(dbPath)) return null;
 
-  for (const session of sessions) {
-    const key = `${session.provider}:${session.directory}`;
-    const existing = byProject.get(key);
-    if (!existing || session.time_updated > existing.time_updated) byProject.set(key, session);
-  }
-
-  return [...byProject.values()];
-}
-
-function parseOpencodeExport(sessionId) {
   try {
-    const output = execSync(`opencode export --json ${sessionId} 2>/dev/null || echo '{}'`, { encoding: 'utf8', timeout: 1000 });
-    return JSON.parse(output);
+    const result = execSync(
+      `sqlite3 -json "${dbPath}" "SELECT time_updated, data FROM part WHERE session_id = ${sqlString(session.id)} ORDER BY time_updated DESC LIMIT 120;"`,
+      { encoding: 'utf8', timeout: 1000 },
+    );
+    const rows = JSON.parse(result || '[]');
+    let latestStepMarker = null;
+
+    for (const row of rows) {
+      if (!row.data) continue;
+
+      let part;
+      try {
+        part = JSON.parse(row.data);
+      } catch {
+        continue;
+      }
+
+      if (!latestStepMarker && (part.type === 'step-start' || part.type === 'step-finish')) {
+        latestStepMarker = part.type;
+      }
+
+      const toolStatus = part.state?.status || part.status;
+      if (part.type === 'tool' && toolStatus && opencodeActiveToolStatuses.has(toolStatus)) {
+        return part.tool || 'Working';
+      }
+
+      if ((part.type === 'text' || part.type === 'reasoning') && part.time?.start && !part.time?.end) {
+        return 'Working';
+      }
+    }
+
+    if (latestStepMarker === 'step-start') return 'Working';
+
+    const recentlyUpdatedMs = Date.now() - session.time_updated;
+    if (recentlyUpdatedMs >= 0 && recentlyUpdatedMs < 10000) return 'Working';
+
+    return null;
   } catch {
     return null;
   }
-}
-
-function opencodeCurrentTool(sessionId) {
-  const exportData = parseOpencodeExport(sessionId);
-  const messages = exportData?.messages || [];
-  const lastMessage = messages[messages.length - 1];
-  const tool = lastMessage?.parts?.find((part) => part.type === 'tool' && ['running', 'pending'].includes(part.state?.status));
-  return tool?.tool || null;
 }
 
 function providerLabel(provider) {
@@ -193,7 +220,7 @@ function discoverAgents() {
   ];
 
   return sessions.map((session) => {
-    const currentTool = session.provider === 'opencode' ? opencodeCurrentTool(session.id) : null;
+    const currentTool = session.provider === 'opencode' ? opencodeCurrentTool(session) : null;
     const projectName = session.provider === 'claude-code' ? session.title : path.basename(session.directory);
     return {
       agentId: `${session.provider}-${session.id}`,

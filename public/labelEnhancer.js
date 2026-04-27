@@ -149,6 +149,30 @@ function installStyles() {
       opacity: 0.9 !important;
     }
 
+    .pixel-agents-status-dot {
+      width: 8px !important;
+      height: 8px !important;
+      border-radius: 999px !important;
+      display: inline-block !important;
+      flex: 0 0 auto !important;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.35), 0 0 6px currentColor !important;
+    }
+
+    .pixel-agents-status-working {
+      color: #4ade80 !important;
+      background: #4ade80 !important;
+    }
+
+    .pixel-agents-status-idle {
+      color: #f59e0b !important;
+      background: #f59e0b !important;
+    }
+
+    .pixel-agents-status-talking {
+      color: #38bdf8 !important;
+      background: #38bdf8 !important;
+    }
+
     .pixel-agents-label-setting {
       position: fixed;
       right: 12px;
@@ -214,8 +238,24 @@ function normalizeStatus(ownerName, value) {
   return value.startsWith(prefix) ? value.slice(prefix.length) : value;
 }
 
+function displayStatus(value) {
+  const normalized = value.trim();
+  if (normalized.toLowerCase() === 'idle') return 'Idle';
+  if (normalized.toLowerCase() === 'talking') return 'Talking';
+  if (normalized.toLowerCase().includes('approval')) return normalized;
+  return 'Working';
+}
+
+function statusKind(value) {
+  const normalized = value.toLowerCase();
+  if (normalized === 'idle') return 'idle';
+  if (normalized === 'talking') return 'talking';
+  return 'working';
+}
+
 function enhancePanel(panel) {
-  const spans = [...panel.querySelectorAll('span')];
+  const spans = [...panel.querySelectorAll('span')]
+    .filter((span) => !span.classList.contains('pixel-agents-status-dot'));
   if (spans.length < 2) return;
 
   const projectSpan = spans[spans.length - 1];
@@ -235,17 +275,20 @@ function enhancePanel(panel) {
   panel.dataset.projectName = parsed.projectName;
 
   const statusSpan = spans[spans.length - 2];
-  const status = normalizeStatus(parsed.ownerName, statusSpan.textContent || 'Idle');
+  const status = displayStatus(normalizeStatus(parsed.ownerName, statusSpan.textContent || 'Idle'));
+  const kind = statusKind(status);
   const iconSrc = providerIcons[parsed.provider.toLowerCase()];
   const compact = compactLabelsEnabled();
   const desiredStatus = `${parsed.ownerName} · ${status}`;
   const currentIcon = statusSpan.querySelector('.pixel-agents-provider-icon');
+  const currentDot = statusSpan.querySelector('.pixel-agents-status-dot');
   const iconMatches = !iconSrc || currentIcon?.getAttribute('src') === iconSrc;
+  const dotMatches = currentDot?.dataset.statusKind === kind;
   const textMatches = statusSpan.textContent === desiredStatus;
   const projectMatches = projectSpan.textContent === parsed.projectName;
   const compactMatches = panel.classList.contains('pixel-agents-compact-label') === compact;
 
-  if (iconMatches && textMatches && projectMatches && compactMatches) return;
+  if (iconMatches && dotMatches && textMatches && projectMatches && compactMatches) return;
 
   panel.classList.toggle('pixel-agents-compact-label', compact);
 
@@ -268,6 +311,12 @@ function enhancePanel(panel) {
     icon.style.flex = '0 0 auto';
     statusSpan.appendChild(icon);
   }
+
+  const dot = document.createElement('i');
+  dot.className = `pixel-agents-status-dot pixel-agents-status-${kind}`;
+  dot.dataset.statusKind = kind;
+  dot.title = status;
+  statusSpan.appendChild(dot);
 
   statusSpan.appendChild(document.createTextNode(`${parsed.ownerName} · ${status}`));
   projectSpan.classList.add('pixel-agents-project-name');

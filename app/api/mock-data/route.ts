@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 
 const localMessagesCacheTtlMs = Number(process.env.PIXEL_AGENTS_LOCAL_MESSAGES_CACHE_MS || 3000);
 let localMessagesCache: { messages: WebviewMessage[]; expiresAt: number } | null = null;
+const opencodeActiveToolStatuses = new Set(['running', 'pending']);
 
 interface WebviewMessage {
   type: string;
@@ -38,7 +39,7 @@ async function getNetworkMessages(): Promise<WebviewMessage[] | null> {
 
 function getOpencodeSessions(): LocalSession[] {
   const sessions = [];
-  const dbPath = path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
+  const dbPath = getOpencodeDbPath();
   
   if (!fs.existsSync(dbPath)) return sessions;
 
@@ -62,6 +63,14 @@ function getOpencodeSessions(): LocalSession[] {
     }
   } catch {}
   return sessions;
+}
+
+function getOpencodeDbPath() {
+  return path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
+}
+
+function sqlString(value: string) {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 function folderNameFromClaudeProjectDir(dirName: string): string {
@@ -105,27 +114,50 @@ function getClaudeCodeSessions(): LocalSession[] {
   return sessions;
 }
 
-function newestSessionByProject<T extends { directory: string; provider: string; time_updated: number }>(sessions: T[]): T[] {
-  const byProject = new Map<string, T>();
+function getOpencodeActivity(session: LocalSession): { active: boolean; toolName: string | null } {
+  const dbPath = getOpencodeDbPath();
+  if (!fs.existsSync(dbPath)) return { active: false, toolName: null };
 
-  for (const session of sessions) {
-    const key = `${session.provider}:${session.directory}`;
-    const existing = byProject.get(key);
-    if (!existing || session.time_updated > existing.time_updated) byProject.set(key, session);
-  }
-
-  return [...byProject.values()];
-}
-
-function parseOpencodeExport(sessionId: string) {
   try {
-    const output = execSync(`opencode export --json ${sessionId} 2>/dev/null || echo '{}'`, {
-      encoding: 'utf8',
-      timeout: 1000,
-    });
-    return JSON.parse(output);
+    const result = execSync(
+      `sqlite3 -json "${dbPath}" "SELECT time_updated, data FROM part WHERE session_id = ${sqlString(session.id)} ORDER BY time_updated DESC LIMIT 120;"`,
+      { encoding: 'utf8', timeout: 1000 },
+    );
+    const rows = JSON.parse(result || '[]') as Array<{ data?: string }>;
+    let latestStepMarker: string | null = null;
+
+    for (const row of rows) {
+      if (!row.data) continue;
+
+      let part: { type?: string; tool?: string; state?: { status?: string }; status?: string; time?: { start?: number; end?: number } };
+      try {
+        part = JSON.parse(row.data);
+      } catch {
+        continue;
+      }
+
+      if (!latestStepMarker && (part.type === 'step-start' || part.type === 'step-finish')) {
+        latestStepMarker = part.type;
+      }
+
+      const toolStatus = part.state?.status || part.status;
+      if (part.type === 'tool' && toolStatus && opencodeActiveToolStatuses.has(toolStatus)) {
+        return { active: true, toolName: part.tool || 'Working' };
+      }
+
+      if ((part.type === 'text' || part.type === 'reasoning') && part.time?.start && !part.time?.end) {
+        return { active: true, toolName: 'Working' };
+      }
+    }
+
+    if (latestStepMarker === 'step-start') return { active: true, toolName: 'Working' };
+
+    const recentlyUpdatedMs = Date.now() - session.time_updated;
+    if (recentlyUpdatedMs >= 0 && recentlyUpdatedMs < 10000) return { active: true, toolName: 'Working' };
+
+    return { active: false, toolName: null };
   } catch {
-    return null;
+    return { active: false, toolName: null };
   }
 }
 
@@ -309,28 +341,17 @@ export async function GET() {
     let hasActiveTools = false;
 
     if (session.provider === 'opencode') {
-      const exportData = parseOpencodeExport(session.id);
-      const msgs = exportData?.messages || [];
-      const lastMsg = msgs[msgs.length - 1];
-      
-      if (lastMsg?.parts) {
-        const runningTools = lastMsg.parts.filter((p: { type: string; state?: { status?: string } }) => 
-          p.type === 'tool' && (p.state?.status === 'running' || p.state?.status === 'pending')
-        );
-        
-        if (runningTools.length > 0) {
-          hasActiveTools = true;
-          
-          for (const tool of runningTools.slice(0, 3)) {
-            messages.push({
-              type: 'agentToolStart',
-              id: agentId,
-              toolId: `opencode-${session.id}-${Date.now()}`,
-              status: `Using ${tool.tool || 'tool'}`,
-              toolName: tool.tool || 'tool',
-            });
-          }
-        }
+      const activity = getOpencodeActivity(session);
+
+      if (activity.active) {
+        hasActiveTools = true;
+        messages.push({
+          type: 'agentToolStart',
+          id: agentId,
+          toolId: `opencode-${session.id}-working`,
+          status: 'Working',
+          toolName: activity.toolName || 'Working',
+        });
       }
     }
 

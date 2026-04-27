@@ -102,7 +102,7 @@ function toMessages() {
         type: 'agentToolStart',
         id,
         toolId: `${machine.machineId}-${agent.agentId}-${agent.currentTool}`,
-        status: `Using ${agent.currentTool}`,
+        status: 'Working',
         toolName: agent.currentTool,
       });
     }

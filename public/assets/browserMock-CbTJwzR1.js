@@ -5,12 +5,16 @@ const knownAgentStatuses = new Map();
 const missingAgentCounts = new Map();
 const idleSince = new Map();
 const idleAwayTimers = new Map();
+const idleSofaTimers = new Map();
 const lastIdleAwaySent = new Map();
 let agentLoadErrorLogged = false;
 
 const missingAgentCloseThreshold = 3;
 const idleAwayDelayMs = 20000;
 const idleAwayRepeatMs = 20000;
+const idleSofaDelayMs = 60000;
+const idleSofaRepeatMinMs = 45000;
+const idleSofaRepeatMaxMs = 120000;
 
 async function getJson(path) {
   const res = await fetch(path);
@@ -47,6 +51,15 @@ export async function dispatchMockMessages() {
     idleAwayTimers.delete(id);
   };
 
+  const clearIdleSofaTimer = (id) => {
+    const timer = idleSofaTimers.get(id);
+    if (timer) clearTimeout(timer);
+    idleSofaTimers.delete(id);
+  };
+
+  const randomSofaDelay = () =>
+    idleSofaRepeatMinMs + Math.floor(Math.random() * (idleSofaRepeatMaxMs - idleSofaRepeatMinMs));
+
   const scheduleIdleAway = (id) => {
     if (idleAwayTimers.has(id)) return;
     const timer = setTimeout(() => {
@@ -57,6 +70,18 @@ export async function dispatchMockMessages() {
       scheduleIdleAway(id);
     }, idleAwayDelayMs);
     idleAwayTimers.set(id, timer);
+  };
+
+  const scheduleIdleSofa = (id, delay = idleSofaDelayMs) => {
+    if (idleSofaTimers.has(id)) return;
+    const timer = setTimeout(() => {
+      idleSofaTimers.delete(id);
+      if (!knownAgentIds.has(id) || knownAgentStatuses.get(id) !== 'idle') return;
+      clearIdleAwayTimer(id);
+      dispatch({ type: 'agentStatus', id, status: 'idle', sofa: true });
+      scheduleIdleSofa(id, randomSofaDelay());
+    }, delay);
+    idleSofaTimers.set(id, timer);
   };
 
   const initialLayout = payload.layout;
@@ -138,6 +163,7 @@ export async function dispatchMockMessages() {
           if (previousStatus !== 'idle' || !idleSince.has(message.id)) {
             idleSince.set(message.id, now);
             scheduleIdleAway(message.id);
+            scheduleIdleSofa(message.id);
           }
 
           const startedAt = idleSince.get(message.id) || now;
@@ -153,6 +179,7 @@ export async function dispatchMockMessages() {
         } else {
           idleSince.delete(message.id);
           clearIdleAwayTimer(message.id);
+          clearIdleSofaTimer(message.id);
           lastIdleAwaySent.delete(message.id);
           if (previousStatus === message.status) continue;
         }
@@ -175,6 +202,7 @@ export async function dispatchMockMessages() {
         missingAgentCounts.delete(id);
         idleSince.delete(id);
         clearIdleAwayTimer(id);
+        clearIdleSofaTimer(id);
         lastIdleAwaySent.delete(id);
         normalized.push({ type: 'agentClosed', id });
       }
