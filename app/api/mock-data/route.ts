@@ -14,6 +14,14 @@ interface WebviewMessage {
   [key: string]: unknown;
 }
 
+interface LocalSession {
+  id: string;
+  title: string;
+  directory: string;
+  time_updated: number;
+  provider: string;
+}
+
 async function getNetworkMessages(): Promise<WebviewMessage[] | null> {
   const hubUrl = process.env.PIXEL_AGENTS_HUB_URL;
   if (!hubUrl) return null;
@@ -28,7 +36,7 @@ async function getNetworkMessages(): Promise<WebviewMessage[] | null> {
   }
 }
 
-function getOpencodeSessions(): Array<{ id: string; title: string; directory: string; time_updated: number; provider: string }> {
+function getOpencodeSessions(): LocalSession[] {
   const sessions = [];
   const dbPath = path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
   
@@ -61,7 +69,7 @@ function folderNameFromClaudeProjectDir(dirName: string): string {
   return parts[parts.length - 1] || dirName;
 }
 
-function getClaudeCodeSessions(): Array<{ id: string; title: string; directory: string; time_updated: number; provider: string }> {
+function getClaudeCodeSessions(): LocalSession[] {
   const sessions = [];
   const storageDir = path.join(os.homedir(), '.claude', 'projects');
 
@@ -136,27 +144,88 @@ function getLocalOwnerName() {
   return os.hostname();
 }
 
-function getRunningProcessCount(processName: string) {
+function getRunningProcesses(processName: string) {
+  const processes: Array<{ pid: number; cwd: string | null }> = [];
+
   try {
-    const output = execSync('ps -axo comm=,args=', {
+    const output = execSync('ps -axo pid=,comm=,args=', {
       encoding: 'utf8',
       timeout: 5000,
     });
 
-    return output
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .filter((line) => {
-        const [command, argsText = ''] = line.split(/\s{2,}/);
-        if (path.basename(command) !== processName) return false;
-        if (processName !== 'opencode') return true;
-        const args = argsText.trim().split(/\s+/).filter(Boolean);
-        return args.length === 1 && path.basename(args[0]) === 'opencode';
-      }).length;
+    for (const line of output.split('\n')) {
+      const match = line.match(/^\s*(\d+)\s+(\S+)\s+(.*)$/);
+      if (!match) continue;
+
+      const pid = Number(match[1]);
+      const command = match[2];
+      const argsText = match[3] || '';
+      if (!Number.isInteger(pid) || path.basename(command) !== processName) continue;
+
+      const args = argsText.trim().split(/\s+/).filter(Boolean);
+      if (processName === 'opencode' && (args.length !== 1 || path.basename(args[0]) !== processName)) continue;
+
+      let cwd: string | null = null;
+      try {
+        const cwdOutput = execSync(`lsof -a -p ${pid} -d cwd -Fn`, {
+          encoding: 'utf8',
+          timeout: 1000,
+        });
+        cwd = cwdOutput
+          .split('\n')
+          .find((entry) => entry.startsWith('n'))
+          ?.slice(1) || null;
+      } catch {}
+
+      processes.push({ pid, cwd });
+    }
   } catch {
-    return 0;
+    return processes;
   }
+
+  return processes;
+}
+
+function pickRunningSessions(sessions: LocalSession[], runningProcesses: Array<{ cwd: string | null }>) {
+  const selected: LocalSession[] = [];
+  const usedSessionIds = new Set<string>();
+  const sessionsByDirectory = new Map<string, LocalSession[]>();
+
+  for (const session of sessions) {
+    const list = sessionsByDirectory.get(session.directory) || [];
+    list.push(session);
+    sessionsByDirectory.set(session.directory, list);
+  }
+
+  for (const list of sessionsByDirectory.values()) {
+    list.sort((a, b) => b.time_updated - a.time_updated);
+  }
+
+  for (const process of runningProcesses) {
+    if (!process.cwd) continue;
+    const candidates = sessionsByDirectory.get(process.cwd) || [];
+    const session = candidates.find((candidate) => !usedSessionIds.has(candidate.id));
+    if (!session) continue;
+    selected.push(session);
+    usedSessionIds.add(session.id);
+  }
+
+  if (selected.length > 0 || runningProcesses.length === 0) return selected;
+
+  return sessions
+    .sort((a, b) => b.time_updated - a.time_updated)
+    .slice(0, runningProcesses.length);
+}
+
+function stableAgentId(session: LocalSession) {
+  const value = `${session.provider}:${session.id}`;
+  let hash = 0;
+
+  for (let index = 0; index < value.length; index++) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+
+  return (hash % 900000) + 1000;
 }
 
 function getDefaultLayout() {
@@ -213,20 +282,20 @@ export async function GET() {
     alwaysShowLabels: true,
   });
 
-  const opencodeProcessCount = getRunningProcessCount('opencode');
-  const claudeProcessCount = getRunningProcessCount('claude');
+  const opencodeProcesses = getRunningProcesses('opencode');
+  const claudeProcesses = getRunningProcesses('claude');
 
-  const opencodeSessions = newestSessionByProject(getOpencodeSessions())
-    .sort((a, b) => b.time_updated - a.time_updated)
-    .slice(0, opencodeProcessCount);
-  const claudeSessions = newestSessionByProject(getClaudeCodeSessions())
-    .sort((a, b) => b.time_updated - a.time_updated)
-    .slice(0, claudeProcessCount);
+  const opencodeSessions = pickRunningSessions(getOpencodeSessions(), opencodeProcesses);
+  const claudeSessions = pickRunningSessions(getClaudeCodeSessions(), claudeProcesses);
 
-  let agentId = 1;
   const allSessions = [...opencodeSessions, ...claudeSessions];
+  const usedAgentIds = new Set<number>();
 
   for (const session of allSessions) {
+    let agentId = stableAgentId(session);
+    while (usedAgentIds.has(agentId)) agentId++;
+    usedAgentIds.add(agentId);
+
     const projectName = session.provider === 'claude-code' ? session.title : path.basename(session.directory);
     const folderName = `${getLocalOwnerName()} · ${providerLabel(session.provider)} · ${projectName}`;
 
@@ -270,8 +339,6 @@ export async function GET() {
       id: agentId,
       status: hasActiveTools ? 'active' : 'idle',
     });
-
-    agentId++;
   }
 
   messages.push({ type: 'layoutReady' });

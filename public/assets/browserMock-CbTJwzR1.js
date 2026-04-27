@@ -2,7 +2,15 @@ let payload = null;
 const knownAgentIds = new Set();
 const knownAgentTools = new Map();
 const knownAgentStatuses = new Map();
+const missingAgentCounts = new Map();
+const idleSince = new Map();
+const idleAwayTimers = new Map();
+const lastIdleAwaySent = new Map();
 let agentLoadErrorLogged = false;
+
+const missingAgentCloseThreshold = 3;
+const idleAwayDelayMs = 20000;
+const idleAwayRepeatMs = 20000;
 
 async function getJson(path) {
   const res = await fetch(path);
@@ -32,6 +40,24 @@ export async function dispatchMockMessages() {
   if (!payload) return;
 
   const dispatch = (data) => window.dispatchEvent(new MessageEvent('message', { data }));
+
+  const clearIdleAwayTimer = (id) => {
+    const timer = idleAwayTimers.get(id);
+    if (timer) clearTimeout(timer);
+    idleAwayTimers.delete(id);
+  };
+
+  const scheduleIdleAway = (id) => {
+    if (idleAwayTimers.has(id)) return;
+    const timer = setTimeout(() => {
+      idleAwayTimers.delete(id);
+      if (!knownAgentIds.has(id) || knownAgentStatuses.get(id) !== 'idle') return;
+      lastIdleAwaySent.set(id, Date.now());
+      dispatch({ type: 'agentStatus', id, status: 'idle', away: true });
+      scheduleIdleAway(id);
+    }, idleAwayDelayMs);
+    idleAwayTimers.set(id, timer);
+  };
 
   const initialLayout = payload.layout;
   const assetMessages = [
@@ -71,10 +97,12 @@ export async function dispatchMockMessages() {
   const normalizeAgentMessages = (messages) => {
     const currentAgentIds = new Set();
     const normalized = [];
+    const now = Date.now();
 
     for (const message of messages) {
       if (message.type === 'agentCreated') {
         currentAgentIds.add(message.id);
+        missingAgentCounts.delete(message.id);
         if (!knownAgentIds.has(message.id)) {
           knownAgentIds.add(message.id);
           normalized.push(message);
@@ -84,6 +112,7 @@ export async function dispatchMockMessages() {
 
       if (message.id !== undefined && message.type !== 'layoutReady') {
         currentAgentIds.add(message.id);
+        missingAgentCounts.delete(message.id);
       }
 
       if (message.type === 'layoutLoaded' || message.type === 'settingsLoaded') continue;
@@ -103,8 +132,31 @@ export async function dispatchMockMessages() {
       }
 
       if (message.type === 'agentStatus') {
-        // Keep idle status flowing so the room can keep sending idle agents back to the kitchen.
-        if (message.status !== 'idle' && knownAgentStatuses.get(message.id) === message.status) continue;
+        const previousStatus = knownAgentStatuses.get(message.id);
+
+        if (message.status === 'idle') {
+          if (previousStatus !== 'idle' || !idleSince.has(message.id)) {
+            idleSince.set(message.id, now);
+            scheduleIdleAway(message.id);
+          }
+
+          const startedAt = idleSince.get(message.id) || now;
+          const lastAway = lastIdleAwaySent.get(message.id) || 0;
+          const shouldSendAway = now - startedAt >= idleAwayDelayMs && now - lastAway >= idleAwayRepeatMs;
+
+          if (shouldSendAway) {
+            message = { ...message, away: true };
+            lastIdleAwaySent.set(message.id, now);
+          } else if (previousStatus === 'idle') {
+            continue;
+          }
+        } else {
+          idleSince.delete(message.id);
+          clearIdleAwayTimer(message.id);
+          lastIdleAwaySent.delete(message.id);
+          if (previousStatus === message.status) continue;
+        }
+
         knownAgentStatuses.set(message.id, message.status);
       }
 
@@ -113,9 +165,17 @@ export async function dispatchMockMessages() {
 
     for (const id of [...knownAgentIds]) {
       if (!currentAgentIds.has(id)) {
+        const missingCount = (missingAgentCounts.get(id) || 0) + 1;
+        missingAgentCounts.set(id, missingCount);
+        if (missingCount < missingAgentCloseThreshold) continue;
+
         knownAgentIds.delete(id);
         knownAgentTools.delete(id);
         knownAgentStatuses.delete(id);
+        missingAgentCounts.delete(id);
+        idleSince.delete(id);
+        clearIdleAwayTimer(id);
+        lastIdleAwaySent.delete(id);
         normalized.push({ type: 'agentClosed', id });
       }
     }

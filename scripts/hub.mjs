@@ -199,6 +199,29 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && req.url === '/reset-host') {
+    try {
+      const body = JSON.parse(await readBody(req));
+      if (!body.hostname) {
+        sendJson(res, 400, { error: 'Expected hostname' });
+        return;
+      }
+
+      let removed = 0;
+      for (const [id, snapshot] of machines) {
+        if (snapshot.hostname === body.hostname && id !== body.machineId) {
+          machines.delete(id);
+          removed++;
+        }
+      }
+
+      sendJson(res, 200, { ok: true, removed });
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : 'Bad request' });
+    }
+    return;
+  }
+
   sendJson(res, 404, { error: 'Not found' });
 });
 

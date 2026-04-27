@@ -23,23 +23,40 @@ function defaultOwnerName() {
   return os.hostname();
 }
 
-function getRunningProcessCount(processName) {
+function getRunningProcesses(processName) {
+  const processes = [];
+
   try {
-    const output = execSync('ps -axo comm=,args=', { encoding: 'utf8', timeout: 5000 });
-    return output
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .filter((line) => {
-        const [command, argsText = ''] = line.split(/\s{2,}/);
-        if (path.basename(command) !== processName) return false;
-        if (processName !== 'opencode') return true;
-        const args = argsText.trim().split(/\s+/).filter(Boolean);
-        return args.length === 1 && path.basename(args[0]) === 'opencode';
-      }).length;
+    const output = execSync('ps -axo pid=,comm=,args=', { encoding: 'utf8', timeout: 5000 });
+
+    for (const line of output.split('\n')) {
+      const match = line.match(/^\s*(\d+)\s+(\S+)\s+(.*)$/);
+      if (!match) continue;
+
+      const pid = Number(match[1]);
+      const command = match[2];
+      const argsText = match[3] || '';
+      if (!Number.isInteger(pid) || path.basename(command) !== processName) continue;
+
+      const args = argsText.trim().split(/\s+/).filter(Boolean);
+      if (processName === 'opencode' && (args.length !== 1 || path.basename(args[0]) !== processName)) continue;
+
+      let cwd = null;
+      try {
+        const cwdOutput = execSync(`lsof -a -p ${pid} -d cwd -Fn`, { encoding: 'utf8', timeout: 1000 });
+        cwd = cwdOutput
+          .split('\n')
+          .find((entry) => entry.startsWith('n'))
+          ?.slice(1) || null;
+      } catch {}
+
+      processes.push({ pid, cwd });
+    }
   } catch {
-    return 0;
+    return processes;
   }
+
+  return processes;
 }
 
 function getOpencodeSessions() {
@@ -132,16 +149,47 @@ function providerLabel(provider) {
   return provider === 'claude-code' ? 'claude' : provider;
 }
 
+function pickRunningSessions(sessions, runningProcesses) {
+  const selected = [];
+  const usedSessionIds = new Set();
+  const sessionsByDirectory = new Map();
+
+  for (const session of sessions) {
+    const list = sessionsByDirectory.get(session.directory) || [];
+    list.push(session);
+    sessionsByDirectory.set(session.directory, list);
+  }
+
+  for (const list of sessionsByDirectory.values()) {
+    list.sort((a, b) => b.time_updated - a.time_updated);
+  }
+
+  for (const process of runningProcesses) {
+    if (!process.cwd) continue;
+    const candidates = sessionsByDirectory.get(process.cwd) || [];
+    const session = candidates.find((candidate) => !usedSessionIds.has(candidate.id));
+    if (!session) continue;
+    selected.push(session);
+    usedSessionIds.add(session.id);
+  }
+
+  if (selected.length > 0 || runningProcesses.length === 0) return selected;
+
+  return sessions
+    .sort((a, b) => b.time_updated - a.time_updated)
+    .slice(0, runningProcesses.length);
+}
+
 function agentLabel(session, projectName) {
   return `${machineName} · ${providerLabel(session.provider)} · ${projectName}`;
 }
 
 function discoverAgents() {
-  const opencodeProcessCount = getRunningProcessCount('opencode');
-  const claudeProcessCount = getRunningProcessCount('claude');
+  const opencodeProcesses = getRunningProcesses('opencode');
+  const claudeProcesses = getRunningProcesses('claude');
   const sessions = [
-    ...newestSessionByProject(getOpencodeSessions()).sort((a, b) => b.time_updated - a.time_updated).slice(0, opencodeProcessCount),
-    ...newestSessionByProject(getClaudeCodeSessions()).sort((a, b) => b.time_updated - a.time_updated).slice(0, claudeProcessCount),
+    ...pickRunningSessions(getOpencodeSessions(), opencodeProcesses),
+    ...pickRunningSessions(getClaudeCodeSessions(), claudeProcesses),
   ];
 
   return sessions.map((session) => {
@@ -176,6 +224,17 @@ async function broadcast() {
   }
 }
 
+async function resetHostSnapshots() {
+  try {
+    await fetch(`${hubUrl}/reset-host`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ hostname: os.hostname(), machineId }),
+    });
+  } catch {}
+}
+
 if (verbose) console.log(`[broadcaster] machine=${machineName} hub=${hubUrl}`);
+await resetHostSnapshots();
 await broadcast();
 setInterval(broadcast, intervalMs);
