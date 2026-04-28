@@ -146,11 +146,26 @@ function sendEvent(res, event, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+function layoutPayload() {
+  return { layout: sharedLayout, updatedAt: sharedLayoutUpdatedAt, origin: sharedLayoutOrigin };
+}
+
 function broadcastMessages() {
   const payload = { messages: toMessages() };
   for (const res of [...eventClients]) {
     try {
       sendEvent(res, 'messages', payload);
+    } catch {
+      eventClients.delete(res);
+    }
+  }
+}
+
+function broadcastLayout() {
+  const payload = layoutPayload();
+  for (const res of [...eventClients]) {
+    try {
+      sendEvent(res, 'layout', payload);
     } catch {
       eventClients.delete(res);
     }
@@ -189,12 +204,13 @@ const server = http.createServer(async (req, res) => {
     res.write(': connected\n\n');
     eventClients.add(res);
     sendEvent(res, 'messages', { messages: toMessages() });
+    sendEvent(res, 'layout', layoutPayload());
     req.on('close', () => eventClients.delete(res));
     return;
   }
 
   if (req.method === 'GET' && req.url === '/layout') {
-    sendJson(res, 200, { layout: sharedLayout, updatedAt: sharedLayoutUpdatedAt, origin: sharedLayoutOrigin });
+    sendJson(res, 200, layoutPayload());
     return;
   }
 
@@ -205,10 +221,18 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { error: 'Expected version 1 layout' });
         return;
       }
+
+      const seedOnly = body.seed === true || body.ifEmpty === true;
+      if (seedOnly && sharedLayout) {
+        sendJson(res, 200, { ok: true, seeded: false, ...layoutPayload() });
+        return;
+      }
+
       sharedLayout = body.layout;
       sharedLayoutUpdatedAt = Date.now();
       sharedLayoutOrigin = typeof body.origin === 'string' ? body.origin : null;
-      sendJson(res, 200, { ok: true, updatedAt: sharedLayoutUpdatedAt, origin: sharedLayoutOrigin });
+      sendJson(res, 200, { ok: true, seeded: seedOnly, ...layoutPayload() });
+      broadcastLayout();
     } catch (error) {
       sendJson(res, 400, { error: error instanceof Error ? error.message : 'Bad request' });
     }

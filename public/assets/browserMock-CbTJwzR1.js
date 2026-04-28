@@ -1,4 +1,5 @@
 let payload = null;
+let furnitureDefinitions = new Map();
 const knownAgentIds = new Set();
 const knownAgentTools = new Map();
 const knownAgentStatuses = new Map();
@@ -9,9 +10,12 @@ const idleSofaTimers = new Map();
 const lastIdleAwaySent = new Map();
 const lastConversationSent = new Map();
 const activeConversationIds = new Set();
+const agentMetaCache = new Map();
 let agentLoadErrorLogged = false;
 let eventsStarted = false;
+let latestSharedLayoutUpdatedAt = 0;
 
+const layoutOriginKey = 'pixel-agents.layout-origin';
 const missingAgentCloseThreshold = 3;
 const idleAwayDelayMs = 30000;
 const idleSofaDelayMs = 60000;
@@ -46,6 +50,141 @@ async function getJson(path) {
   return res.json();
 }
 
+function getLayoutOrigin() {
+  let origin = localStorage.getItem(layoutOriginKey);
+  if (!origin) {
+    origin = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(layoutOriginKey, origin);
+  }
+  return origin;
+}
+
+function isVersionedLayout(layout) {
+  return layout && layout.version === 1;
+}
+
+async function loadSharedInitialLayout(defaultLayout) {
+  try {
+    const data = await getJson('/api/layout');
+    if (isVersionedLayout(data.layout)) {
+      latestSharedLayoutUpdatedAt = typeof data.updatedAt === 'number' ? data.updatedAt : latestSharedLayoutUpdatedAt;
+      return data.layout;
+    }
+  } catch {}
+
+  if (!isVersionedLayout(defaultLayout)) return defaultLayout;
+
+  try {
+    const response = await fetch('/api/layout', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ layout: defaultLayout, origin: getLayoutOrigin(), seed: true }),
+    });
+    if (!response.ok) return defaultLayout;
+
+    const data = await response.json();
+    if (typeof data.updatedAt === 'number') latestSharedLayoutUpdatedAt = data.updatedAt;
+    return isVersionedLayout(data.layout) ? data.layout : defaultLayout;
+  } catch {
+    return defaultLayout;
+  }
+}
+
+function stableHash(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function furnitureDefinition(type) {
+  return furnitureDefinitions.get(String(type || '').split(':')[0]) || null;
+}
+
+function getSeatIds(layout) {
+  const seats = [];
+  const furniture = Array.isArray(layout?.furniture) ? layout.furniture : [];
+
+  for (const item of furniture) {
+    const definition = furnitureDefinition(item.type);
+    if (!definition || definition.category !== 'chairs') continue;
+
+    let seatIndex = 0;
+    const backgroundTiles = definition.backgroundTiles ?? 0;
+    for (let row = backgroundTiles; row < definition.footprintH; row++) {
+      for (let col = 0; col < definition.footprintW; col++) {
+        seats.push({
+          id: seatIndex === 0 ? item.uid : `${item.uid}:${seatIndex}`,
+          col: item.col + col,
+          row: item.row + row,
+        });
+        seatIndex++;
+      }
+    }
+  }
+
+  return seats
+    .sort((a, b) => a.row - b.row || a.col - b.col || String(a.id).localeCompare(String(b.id)))
+    .map((seat) => seat.id);
+}
+
+function pickSeat(agentKey, seatIds, usedSeats) {
+  if (seatIds.length === 0) return undefined;
+
+  const start = stableHash(`${agentKey}:seat`) % seatIds.length;
+  for (let offset = 0; offset < seatIds.length; offset++) {
+    const seatId = seatIds[(start + offset) % seatIds.length];
+    if (usedSeats.has(seatId)) continue;
+    usedSeats.add(seatId);
+    return seatId;
+  }
+
+  return undefined;
+}
+
+function buildExistingAgentsMessage(messages, layout) {
+  const createdAgents = new Map();
+  for (const message of messages) {
+    if (message.type === 'agentCreated' && message.id !== undefined) createdAgents.set(message.id, message);
+  }
+
+  const agents = [...createdAgents.values()].sort((a, b) => Number(a.id) - Number(b.id) || String(a.id).localeCompare(String(b.id)));
+  if (agents.length === 0) return null;
+
+  const characterCount = Array.isArray(payload?.characters) && payload.characters.length > 0 ? payload.characters.length : 1;
+  const seatIds = getSeatIds(layout);
+  const usedSeats = new Set();
+  const agentMeta = {};
+  const folderNames = {};
+
+  for (const agent of agents) {
+    const key = `${agent.id}:${agent.folderName || ''}`;
+    const cachedMeta = agentMetaCache.get(key);
+    if (cachedMeta && (!cachedMeta.seatId || seatIds.includes(cachedMeta.seatId)) && !usedSeats.has(cachedMeta.seatId)) {
+      if (cachedMeta.seatId) usedSeats.add(cachedMeta.seatId);
+      agentMeta[agent.id] = { ...cachedMeta };
+      if (agent.folderName) folderNames[agent.id] = agent.folderName;
+      continue;
+    }
+
+    const hash = stableHash(key);
+    const meta = {
+      palette: hash % characterCount,
+      hueShift: stableHash(`${key}:hue`) % 360,
+    };
+    const seatId = pickSeat(key, seatIds, usedSeats);
+    if (seatId) meta.seatId = seatId;
+
+    agentMeta[agent.id] = meta;
+    agentMetaCache.set(key, { ...meta });
+    if (agent.folderName) folderNames[agent.id] = agent.folderName;
+  }
+
+  return { type: 'existingAgents', agents: agents.map((agent) => agent.id), agentMeta, folderNames };
+}
+
 export async function initBrowserMock() {
   const [characters, floorSprites, wallSets, furnitureSprites, furnitureCatalog, assetIndex] =
     await Promise.all([
@@ -62,6 +201,7 @@ export async function initBrowserMock() {
     : null;
 
   payload = { characters, floorSprites, wallSets, furnitureSprites, furnitureCatalog, layout };
+  furnitureDefinitions = new Map(furnitureCatalog.map((definition) => [definition.id, definition]));
 }
 
 export async function dispatchMockMessages() {
@@ -200,7 +340,12 @@ export async function dispatchMockMessages() {
     idleSofaTimers.set(id, timer);
   };
 
-  const initialLayout = payload.layout;
+  let currentLayout = payload.layout;
+  window.addEventListener('message', (event) => {
+    const message = event.data;
+    if (message?.type === 'layoutLoaded' && isVersionedLayout(message.layout)) currentLayout = message.layout;
+  });
+
   const assetMessages = [
     { type: 'characterSpritesLoaded', characters: payload.characters },
     { type: 'floorTilesLoaded', sprites: payload.floorSprites },
@@ -210,16 +355,34 @@ export async function dispatchMockMessages() {
       catalog: payload.furnitureCatalog,
       sprites: payload.furnitureSprites,
     },
-    { type: 'layoutLoaded', layout: initialLayout },
-    {
-      type: 'settingsLoaded',
-      soundEnabled: true,
-      extensionVersion: '1.3.0',
-      lastSeenVersion: '1.2',
-      watchAllSessions: true,
-      alwaysShowLabels: true,
-    },
   ];
+
+  const settingsMessage = {
+    type: 'settingsLoaded',
+    soundEnabled: true,
+    extensionVersion: '1.3.0',
+    lastSeenVersion: '1.2',
+    watchAllSessions: true,
+    alwaysShowLabels: true,
+  };
+
+  const dispatchAgentRoster = (messages, forceLayout = false) => {
+    const roster = buildExistingAgentsMessage(messages, currentLayout);
+    if (!roster) return false;
+
+    dispatch(roster);
+    if (forceLayout && isVersionedLayout(currentLayout)) {
+      dispatch({ type: 'layoutLoaded', layout: currentLayout, force: true });
+    }
+    return true;
+  };
+
+  const dispatchInitialAssets = (messages) => {
+    assetMessages.forEach(dispatch);
+    dispatchAgentRoster(messages);
+    dispatch({ type: 'layoutLoaded', layout: currentLayout });
+    dispatch(settingsMessage);
+  };
 
   const loadAgentMessages = async () => {
     try {
@@ -256,7 +419,7 @@ export async function dispatchMockMessages() {
         missingAgentCounts.delete(message.id);
       }
 
-      if (message.type === 'layoutLoaded' || message.type === 'settingsLoaded') continue;
+      if (message.type === 'layoutLoaded' || message.type === 'settingsLoaded' || message.type === 'existingAgents') continue;
 
       if (message.type === 'agentToolStart') {
         const toolName = message.toolName || message.status || '';
@@ -323,7 +486,9 @@ export async function dispatchMockMessages() {
 
   const sendInitial = async () => {
     const agentMessages = await loadAgentMessages();
-    [...assetMessages, ...normalizeAgentMessages(agentMessages || [])].forEach(dispatch);
+    currentLayout = await loadSharedInitialLayout(currentLayout);
+    dispatchInitialAssets(agentMessages || []);
+    normalizeAgentMessages(agentMessages || []).forEach(dispatch);
     maybeSendConversation();
     window.parent.postMessage({ type: 'layoutReady' }, '*');
   };
@@ -331,6 +496,9 @@ export async function dispatchMockMessages() {
   const sendAgentUpdates = async () => {
     const agentMessages = await loadAgentMessages();
     if (!agentMessages) return;
+    if (agentMessages.some((message) => message.type === 'agentCreated' && !knownAgentIds.has(message.id))) {
+      dispatchAgentRoster(agentMessages, true);
+    }
     normalizeAgentMessages(agentMessages).forEach(dispatch);
     maybeSendConversation();
   };
@@ -344,10 +512,28 @@ export async function dispatchMockMessages() {
       try {
         const data = JSON.parse(event.data);
         const messages = Array.isArray(data.messages) ? data.messages : [];
+        if (messages.some((message) => message.type === 'agentCreated' && !knownAgentIds.has(message.id))) {
+          dispatchAgentRoster(messages, true);
+        }
         normalizeAgentMessages(messages).forEach(dispatch);
         maybeSendConversation();
       } catch (err) {
         console.warn('[BrowserMock] Failed to process live agent event.', err);
+      }
+    });
+    source.addEventListener('layout', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (!isVersionedLayout(data.layout)) return;
+        if (typeof data.updatedAt === 'number' && data.updatedAt <= latestSharedLayoutUpdatedAt) return;
+
+        currentLayout = data.layout;
+        latestSharedLayoutUpdatedAt = typeof data.updatedAt === 'number' ? data.updatedAt : Date.now();
+        if (data.origin && data.origin === getLayoutOrigin()) return;
+
+        dispatch({ type: 'layoutLoaded', layout: currentLayout, force: true });
+      } catch (err) {
+        console.warn('[BrowserMock] Failed to process live layout event.', err);
       }
     });
     source.addEventListener('error', () => {
@@ -359,8 +545,10 @@ export async function dispatchMockMessages() {
     return true;
   };
 
-  setTimeout(sendInitial, 0);
+  setTimeout(async () => {
+    await sendInitial();
+    startEventStream();
+  }, 0);
   [500, 2000].forEach((delay) => setTimeout(sendAgentUpdates, delay));
-  startEventStream();
   setInterval(sendAgentUpdates, 30000);
 }

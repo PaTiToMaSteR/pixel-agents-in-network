@@ -10,6 +10,10 @@ function hubUrl() {
   return process.env.PIXEL_AGENTS_HUB_URL?.replace(/\/$/, '') || null;
 }
 
+function localLayoutPayload() {
+  return { layout: localLayout, updatedAt: localLayoutUpdatedAt, origin: localLayoutOrigin };
+}
+
 export async function GET() {
   const hub = hubUrl();
   if (hub) {
@@ -19,7 +23,7 @@ export async function GET() {
     } catch {}
   }
 
-  return NextResponse.json({ layout: localLayout, updatedAt: localLayoutUpdatedAt, origin: localLayoutOrigin });
+  return NextResponse.json(localLayoutPayload());
 }
 
 export async function POST(request: NextRequest) {
@@ -34,14 +38,24 @@ export async function POST(request: NextRequest) {
       const response = await fetch(`${hub}/layout`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ layout: body.layout, origin: body.origin || null }),
+        body: JSON.stringify({
+          layout: body.layout,
+          origin: body.origin || null,
+          seed: body.seed === true,
+          ifEmpty: body.ifEmpty === true,
+        }),
       });
       if (response.ok) return NextResponse.json(await response.json());
     } catch {}
   }
 
+  const seedOnly = body.seed === true || body.ifEmpty === true;
+  if (seedOnly && localLayout) {
+    return NextResponse.json({ ok: true, seeded: false, ...localLayoutPayload() });
+  }
+
   localLayout = body.layout;
   localLayoutUpdatedAt = Date.now();
   localLayoutOrigin = typeof body.origin === 'string' ? body.origin : null;
-  return NextResponse.json({ ok: true, updatedAt: localLayoutUpdatedAt, origin: localLayoutOrigin });
+  return NextResponse.json({ ok: true, seeded: seedOnly, ...localLayoutPayload() });
 }
